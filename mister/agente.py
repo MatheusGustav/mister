@@ -200,9 +200,15 @@ def conversar(
         if decisao.intencao == "perguntar":
             pergunta = decisao.params.get("pergunta", "pode detalhar?")
             historico.append(_jogada(decisao))
-            resposta_do_dono = perguntar(f"{pergunta} ")
             # A fala do dono é a RESPOSTA da chamada 'perguntar' — vai no par
-            # nativo dela, não numa mensagem user solta.
+            # nativo dela, não numa mensagem user solta. O `except` fecha o par
+            # mesmo se o dono cancelar (ESC) no meio: jogada sem resposta deixa
+            # o histórico inválido, e o PRÓXIMO turno é que morreria por isso.
+            try:
+                resposta_do_dono = perguntar(f"{pergunta} ")
+            except BaseException:
+                historico.append(_resposta(decisao, "[o dono cancelou antes de responder]"))
+                raise
             historico.append(_resposta(decisao, resposta_do_dono))
             continue
 

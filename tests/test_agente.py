@@ -107,6 +107,27 @@ def test_falha_da_tool_nao_derruba_o_turno():
 
 # --- perguntar ---------------------------------------------------------------
 
+def test_cancelar_durante_a_pergunta_nao_deixa_o_historico_quebrado():
+    """ESC no meio de uma pergunta: a jogada já entrou no histórico e PRECISA da
+    resposta dela — par nativo incompleto é pedido que a API recusa, e quem
+    morreria por isso é o turno SEGUINTE."""
+    import pytest
+
+    cerebro = _CerebroRoteirizado(Decisao("perguntar", {"pergunta": "qual arquivo?"}))
+    historico: list[dict] = []
+
+    def _cancela(_):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        conversar(
+            cerebro, lambda d: Resultado(True, "?"), "manda um arquivo",
+            perguntar=_cancela, mostrar=lambda m: None, historico=historico,
+        )
+    assert historico[-2].get("tool_calls") and historico[-1]["role"] == "tool"
+    assert historico[-2]["tool_calls"][0]["id"] == historico[-1]["tool_call_id"]
+
+
 def test_perguntar_leva_a_fala_do_dono_de_volta_pro_cerebro():
     cerebro = _CerebroRoteirizado(
         Decisao("perguntar", {"pergunta": "qual arquivo?"}, id_chamada="p1"),
