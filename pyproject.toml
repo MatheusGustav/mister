@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mister-ai"
+version = "0.1.0"
+description = "Assistente pessoal agêntico: um cérebro (LLM) decide, tools determinísticas executam, segurança em código."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Matheus Gustav" }]
+dependencies = [
+    "pydantic>=2,<3",
+    "rich>=13",
+    "cryptography>=42",  # o cofre do correio (AES-256-GCM)
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+mister = "mister.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["mister*"]

@@ -1,0 +1,19 @@
+# Ambiente Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Segredos — NUNCA versionar (a MISTER_API_KEY vai aqui dentro)
+.env
+*.key
+secrets/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
