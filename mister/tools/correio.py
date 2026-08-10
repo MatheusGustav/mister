@@ -38,10 +38,13 @@ except ImportError:
     ekodide_config = None
     ekodide_vizinhanca = None
 
+# A receita aponta pra PASTA LOCAL de propósito: o `espiar` (que o
+# olhar_no_celular usa) ainda só existe lá — não está numa versão publicada.
+# Quando o ekodide subir pro PyPI com ele dentro, isto vira 'pipx install ekodide'.
 RECEITA_EKODIDE = (
-    "Instale o ekodide (pipx install ekodide), pareie com o celular "
-    "(ekodide pair) e cadastre o destino (ekodide config destino celular "
-    "http://IP:8778)."
+    "Instale o ekodide: pip install -e ~/Documentos/projetos/Ekodide — depois "
+    "pareie com o celular (ekodide pair) e cadastre o destino "
+    "(ekodide config destino celular http://IP:8778)."
 )
 
 # O nome do celular na config do ekodide. É o mesmo apelido que o `ekodide send

@@ -105,7 +105,7 @@ def test_sem_ekodide_recusa_com_receita_em_vez_de_estourar(monkeypatch, nome, pa
     assert isinstance(saida, Resultado)
     assert saida.ok is False
     assert "ekodide" in saida.mensagem
-    assert "pipx install ekodide" in saida.sugestao
+    assert "install" in saida.sugestao and "ekodide pair" in saida.sugestao
 
 
 def test_disponivel_e_um_lugar_so(monkeypatch):
@@ -387,7 +387,7 @@ def test_olhar_que_falha_diz_o_motivo(ekodide_dublado):
 def test_olhar_sem_ekodide_recusa_com_receita(monkeypatch):
     monkeypatch.setattr(correio, "ekodide", None)
     saida = despachar(_decisao("olhar_no_celular", {"nome": "nota.txt"}))
-    assert saida.ok is False and "pipx install ekodide" in saida.sugestao
+    assert saida.ok is False and saida.sugestao == correio.RECEITA_EKODIDE
 
 
 # --- as 5 tools do MVP --------------------------------------------------------
