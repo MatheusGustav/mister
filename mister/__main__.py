@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 
-from mister import conversa, interface
+from mister import conversa, envios, interface
 from mister.agente import conversar
 from mister.brain import criar_cerebro
 from mister.dispatcher import despachar
@@ -15,6 +15,7 @@ from mister.dispatcher import despachar
 # As tools se cadastram no registro quando o módulo é importado — importar aqui
 # é o que faz o cérebro enxergá-las.
 import mister.tools.basic  # noqa: F401
+import mister.tools.correio  # noqa: F401
 
 
 def _escolher_conversa(ui) -> list[dict]:
@@ -108,6 +109,10 @@ def main() -> None:
                 pensando=ui.pensando,
                 atividade=ui.atividade,
                 historico=historico,
+                # Envio de arquivo roda em segundo plano e pode terminar num
+                # turno seguinte: o laço colhe o desfecho aqui (sem bloquear) e
+                # o cérebro avisa o dono na próxima fala.
+                recados=envios.colher_prontos,
             )
             historico = conversa.compactar(historico)
             conversa.salvar(historico)
