@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from mister.confirmacao import Pendente, PrecisaConfirmar, carimbar
+from mister.confirmacao import CAMPOS_INTERNOS, Pendente, PrecisaConfirmar, carimbar
 from mister.registry import REGISTRO
 from mister.resultado import Resultado
 
@@ -32,16 +32,16 @@ def despachar(decisao: "Decisao") -> Resultado | Pendente:
     if spec is None:
         return Resultado(False, f"Intenção desconhecida: '{decisao.intencao}'.")
 
-    # TRANCA ANTI-FURO: campo com default (ex.: 'confirmado') é INTERNO — fica
-    # escondido do cérebro no prompt, mas um modelo enganado/injetado pode
-    # preenchê-lo mesmo assim e pular a confirmação. Aqui esses campos são
-    # DESCARTADOS, determinístico: só a decisão CARIMBADA pelo loop após o dono
-    # topar (aval_do_dono) os mantém. Prompt esconde; despachante GARANTE.
+    # TRANCA ANTI-FURO: campo INTERNO (ex.: 'confirmado', ver
+    # confirmacao.CAMPOS_INTERNOS) fica escondido do cérebro no prompt, mas um
+    # modelo enganado/injetado pode preenchê-lo mesmo assim e pular a
+    # confirmação. Aqui esses campos são DESCARTADOS, determinístico: só a
+    # decisão CARIMBADA pelo loop após o dono topar (aval_do_dono) os mantém.
+    # Prompt esconde; despachante GARANTE.
     params = dict(decisao.params)
     if not decisao.aval_do_dono:
-        for nome, campo in spec.formulario.model_fields.items():
-            if not campo.is_required():
-                params.pop(nome, None)
+        for nome in CAMPOS_INTERNOS:
+            params.pop(nome, None)
     else:
         # CARIMBO ANTI-DRIFT: aval do dono só vale pra ação EXATA que ele viu.
         # Recalcula a impressão digital (intenção + params + cwd + arquivos-

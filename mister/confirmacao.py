@@ -20,6 +20,16 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# CAMPOS INTERNOS: existem no formulário da tool, mas são do SISTEMA, não do
+# cérebro. Ele nem os enxerga (o prompt os esconde — ver prompts._schema_params)
+# e, se um modelo enganado preenchê-los mesmo assim, o despachante os DESCARTA;
+# só a decisão carimbada pelo laço, depois do "s" do dono, os mantém.
+#
+# A lista mora AQUI (a peça da confirmação) pra ser UMA só: prompt e despachante
+# leem a mesma. Campo com default que NÃO está nesta lista é opção legítima da
+# tool (ex.: a 'pasta' do celular) — o cérebro vê e pode preencher.
+CAMPOS_INTERNOS = frozenset({"confirmado"})
+
 # Teto do hash de arquivo-operando: acima disso, carimba só tamanho+mtime (a
 # máquina é magra — nada de ler gigas pra RAM; hash é em streaming mesmo assim).
 _TETO_HASH_BYTES = 64 * 1024 * 1024
