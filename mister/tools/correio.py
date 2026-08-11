@@ -38,12 +38,12 @@ except ImportError:
     ekodide_config = None
     ekodide_vizinhanca = None
 
-# A receita aponta pra PASTA LOCAL de propósito: o `espiar` (que o
-# olhar_no_celular usa) ainda só existe lá — não está numa versão publicada.
-# Quando o ekodide subir pro PyPI com ele dentro, isto vira 'pipx install ekodide'.
+# A VERSÃO importa: o `espiar` (que o olhar_no_celular usa) só existe a partir
+# da 0.1.1 — a 0.1.0 é de antes dele. Por isso a receita crava a versão, e o
+# extra `celular` do pyproject.toml pede `ekodide>=0.1.1`.
 RECEITA_EKODIDE = (
-    "Instale o ekodide: pip install -e ~/Documentos/projetos/Ekodide — depois "
-    "pareie com o celular (ekodide pair) e cadastre o destino "
+    "Instale o ekodide: pip install 'ekodide>=0.1.1' — depois pareie com o "
+    "celular (ekodide pair) e cadastre o destino "
     "(ekodide config destino celular http://IP:8778)."
 )
 

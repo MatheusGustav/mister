@@ -20,7 +20,11 @@ dev = ["pytest>=8"]
 # separado, com repo, versão e ciclo próprios. Entra como EXTRA OPCIONAL de
 # propósito: o Mister tem que subir e rodar sem ele instalado, e as tools do
 # celular recusam com receita em vez de estourar (ver mister/tools/correio.py).
-celular = ["ekodide>=0.1"]
+#
+# >=0.1.1 e não >=0.1: o `espiar` (a espiada do olhar_no_celular, que lê sem
+# gravar) nasceu na 0.1.1. Com a 0.1.0 o import passa e a tool quebra na hora
+# de usar — o pior tipo de falha, a que só aparece tarde.
+celular = ["ekodide>=0.1.1"]
 
 [project.scripts]
 mister = "mister.__main__:main"
