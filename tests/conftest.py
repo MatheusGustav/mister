@@ -10,8 +10,9 @@ de fora desta lista e meses de pytest despejaram fixture no arquivo REAL do
 dono. Isolar aqui é a rede de proteção; ler o env por chamada é a regra que
 segura ela.
 
-Os caminhos graváveis: a conversa, o acervo de conversas e o MISTER.md (as
-regras do dono). O correio guarda o dele em ~/.config/ekodide/, que é do
+Os caminhos graváveis: a conversa, o acervo de conversas, o MISTER.md (as
+regras do dono) e o grafo da memória (memoria/). O correio guarda o dele em
+~/.config/ekodide/, que é do
 EKODIDE, não daqui — e nenhum teste chega perto disso (o ekodide é dublado,
 ver test_correio.py).
 """
@@ -23,3 +24,4 @@ def mister_isolado(monkeypatch, tmp_path):
     monkeypatch.setenv("MISTER_CONVERSA", str(tmp_path / "conversa.json"))
     monkeypatch.setenv("MISTER_CONVERSAS", str(tmp_path / "conversas"))
     monkeypatch.setenv("MISTER_REGRAS", str(tmp_path / "MISTER.md"))
+    monkeypatch.setenv("MISTER_MEMORIA", str(tmp_path / "memoria"))
