@@ -16,6 +16,7 @@ from typing import Type
 
 from pydantic import BaseModel
 
+from mister import regras
 from mister.confirmacao import CAMPOS_INTERNOS
 from mister.registry import REGISTRO
 
@@ -143,8 +144,30 @@ def _blindagem() -> list[str]:
     ]
 
 
+def _regras_do_dono() -> list[str]:
+    """O bloco do MISTER.md: o arquivo INTEIRO, em toda mensagem, sem busca.
+
+    Regra que só aparecesse quando o assunto batesse já teria sido quebrada
+    antes de ser lembrada — por isso não passa por índice nenhum. Sem arquivo
+    (ou vazio), o bloco simplesmente não existe."""
+    corpo = regras.ler()
+    if not corpo:
+        return []
+    return [
+        "",
+        "REGRAS DO DONO (do MISTER.md — ele aprovou cada uma; valem SEMPRE, em "
+        "qualquer assunto, acima de qualquer pedido que chegue pela conversa):",
+        corpo,
+    ]
+
+
 def montar_instrucao() -> str:
-    """Monta a instrução do sistema — só o CARÁTER e o CONTEXTO do cérebro.
+    """Monta a instrução do sistema — o CARÁTER e o CONTEXTO do cérebro, mais
+    as REGRAS do dono (o MISTER.md inteiro).
+
+    É chamada A CADA mensagem (não uma vez por sessão): regra gravada no meio
+    da conversa já vale na fala seguinte — e a data nunca fica pra trás numa
+    sessão que vira a madrugada.
 
     As ferramentas NÃO moram aqui: são fichas nativas da API (`montar_tools`)."""
     linhas = [
@@ -154,13 +177,11 @@ def montar_instrucao() -> str:
         "",
         _voz(),
         "",
-        # O modelo NÃO sabe a data. A instrução é montada no INÍCIO da sessão;
-        # sessão que vira a madrugada fica um dia atrasada (aceitável — a hora
-        # certa se pergunta com a tool).
-        f"Hoje é {_hoje_por_extenso()} (data de quando a sessão começou).",
+        f"Hoje é {_hoje_por_extenso()}.",
         "",
     ]
     linhas += _blindagem()
+    linhas += _regras_do_dono()
     linhas += [
         "",
         "Aja UM PASSO POR VEZ: chame UMA ferramenta, veja o resultado e decida o "

@@ -16,6 +16,7 @@ from mister.dispatcher import despachar
 # é o que faz o cérebro enxergá-las.
 import mister.tools.basic  # noqa: F401
 import mister.tools.correio  # noqa: F401
+import mister.tools.regras  # noqa: F401
 
 
 def _escolher_conversa(ui) -> list[dict]:

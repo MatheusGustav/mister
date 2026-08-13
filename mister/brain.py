@@ -95,8 +95,6 @@ class _CerebroBase:
     """A LÓGICA do cérebro, separada do transporte: o que fazer com a resposta
     do modelo. O motor concreto só implementa COMO falar com ele (`_chamar`)."""
 
-    _instrucao: str
-
     def _chamar(self, mensagens: list[dict], tools: list[dict]) -> dict:
         raise NotImplementedError
 
@@ -105,11 +103,16 @@ class _CerebroBase:
         mensagens no formato OpenAI). É a peça que sustenta o agente multi-step;
         cada passo continua passando pela validação do despachante.
 
+        A instrução do sistema é REMONTADA aqui, a cada mensagem — é o que faz
+        o MISTER.md (as regras do dono) valer na fala seguinte à gravação, sem
+        reiniciar a sessão. O transporte só envia o que receber.
+
         A tradução da resposta nativa: chamada de ferramenta vira a intenção (o
         `content` que vem junto é a narração); texto puro SEM chamada é a
         resposta final ('responder'); nada dos dois (raro) vira None — o cinto
         pra resposta vazia."""
-        mensagem = self._chamar(historico, montar_tools())
+        sistema = {"role": "system", "content": montar_instrucao()}
+        mensagem = self._chamar([sistema, *historico], montar_tools())
         ultimo = str(historico[-1].get("content") or "") if historico else ""
         chamadas = mensagem.get("tool_calls") or []
         narracao = str(mensagem.get("content") or "").strip()
@@ -141,7 +144,6 @@ class Cerebro(_CerebroBase):
     `Decisao` validável."""
 
     def __init__(self, chave: str | None = None):
-        self._instrucao = montar_instrucao()
         self._chave = chave or os.environ.get(API_CHAVE_ENV)
         if not self._chave:
             raise RuntimeError(
@@ -158,7 +160,9 @@ class Cerebro(_CerebroBase):
         modelo que não suporta tool-calling (a API recusa)."""
         pedido = {
             "model": self.modelo,
-            "messages": [{"role": "system", "content": self._instrucao}, *mensagens],
+            # A instrução do sistema já vem DENTRO de `mensagens` (quem monta é
+            # o proximo_passo, a cada mensagem) — aqui é só transporte.
+            "messages": mensagens,
             # Explícito em vez de confiar no default da API, pra não mudar por
             # baixo de nós. Quem decide o próximo passo pensa antes.
             **_campo_pensar(True),
