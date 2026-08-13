@@ -5,8 +5,9 @@ com `mister --continue` (a última) ou `mister -r` (qualquer uma guardada).
 corromper, começa-se uma conversa nova — memória nunca pode travar o Mister.
 Trocável por MISTER_CONVERSA / MISTER_CONVERSAS (testes, ou separar perfis).
 
-Isto é memória de CONVERSA, não memória de longo prazo: o que sai da janela sai
-de vez (o "sonhar" e as lições ficaram fora do MVP, um de cada vez).
+Isto é memória de CONVERSA, não memória de longo prazo — essa é outra peça (o
+grafo: memoria.py escreve, lembranca.py lê). O que sai da janela sai da
+conversa; só fica o que o Mister tiver anotado no grafo.
 """
 from __future__ import annotations
 

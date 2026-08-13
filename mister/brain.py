@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from mister.prompts import montar_instrucao, montar_tools
+from mister.prompts import montar_instrucao, montar_memoria, montar_tools
 
 # Configuração da API por ambiente (sem mexer no código). Padrão: OpenRouter.
 API_URL = os.environ.get(
@@ -81,6 +81,22 @@ class ErroCerebro(RuntimeError):
     problema de chave/rede como incompreensão."""
 
 
+def _consulta_do_dono(historico: list[dict]) -> str:
+    """A última fala do DONO no histórico — é com ela que a memória de longo
+    prazo se busca ("o pedaço que tem a ver com o que VOCÊ falou").
+
+    Mensagem user que começa com '[' não é o dono falando: é o sistema
+    (recado do segundo plano, aviso de loop) — pulada. O preço raro de o dono
+    abrir uma fala com '[' é uma mensagem sem memória, e só."""
+    for mensagem in reversed(historico):
+        if mensagem.get("role") != "user":
+            continue
+        conteudo = str(mensagem.get("content") or "").strip()
+        if conteudo and not conteudo.startswith("["):
+            return conteudo
+    return ""
+
+
 def _campo_pensar(pensar: bool) -> dict:
     """O campo que liga/desliga o RACIOCÍNIO muda de dialeto por provedor:
     OpenRouter normaliza como 'reasoning'; a forma OpenAI clássica fala
@@ -105,13 +121,22 @@ class _CerebroBase:
 
         A instrução do sistema é REMONTADA aqui, a cada mensagem — é o que faz
         o MISTER.md (as regras do dono) valer na fala seguinte à gravação, sem
-        reiniciar a sessão. O transporte só envia o que receber.
+        reiniciar a sessão. E a MEMÓRIA DE LONGO PRAZO entra junto: a leitura
+        automática busca o que tem a ver com a última fala do dono e costura as
+        notas no prompt — fresca a cada chamada, nunca acumulada no histórico
+        (assunto que passou sai do contexto sozinho). O transporte só envia o
+        que receber.
 
         A tradução da resposta nativa: chamada de ferramenta vira a intenção (o
         `content` que vem junto é a narração); texto puro SEM chamada é a
         resposta final ('responder'); nada dos dois (raro) vira None — o cinto
         pra resposta vazia."""
-        sistema = {"role": "system", "content": montar_instrucao()}
+        conteudo = montar_instrucao()
+        consulta = _consulta_do_dono(historico)
+        bloco = montar_memoria(consulta) if consulta else ""
+        if bloco:
+            conteudo = f"{conteudo}\n\n{bloco}"
+        sistema = {"role": "system", "content": conteudo}
         mensagem = self._chamar([sistema, *historico], montar_tools())
         ultimo = str(historico[-1].get("content") or "") if historico else ""
         chamadas = mensagem.get("tool_calls") or []
