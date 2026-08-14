@@ -1,22 +1,25 @@
-"""O grafo e a caneta: nota .md com [[links]], escrita em segundo plano.
+"""O grafo e a caneta: nota .md com [[links]], escrita em segundo plano — e
+agora as quatro tools de corrigir memória, síncronas, com a trava de
+ler-antes.
 
-Aqui o Mister ESCREVE memória — ainda não lê (isso é das etapas do índice e da
-leitura automática). O que está sob teste: o slug é um funil só (escrever e
-linkar apontam pro mesmo arquivo), anotar no mesmo título ACRESCENTA em vez de
-apagar, e a caneta nunca trava o turno.
+O que está sob teste: o slug é um funil só (escrever e linkar apontam pro
+mesmo arquivo), anotar no mesmo título ACRESCENTA em vez de apagar, a caneta
+nunca trava o turno, e ler_nota/trocar_trecho/reescrever_nota/apagar_nota só
+mexem no que o cérebro já leu nesta conversa.
 """
-from mister import envios, memoria
+from mister import envios, leituras, memoria
+from mister.confirmacao import Pendente
 from mister.dispatcher import despachar
 
 import mister.tools.memoria  # noqa: F401  (cadastra a tool no registro)
 
 
 class _Decisao:
-    def __init__(self, intencao, params):
+    def __init__(self, intencao, params, aval_do_dono=False, carimbo=""):
         self.intencao = intencao
         self.params = params
-        self.aval_do_dono = False
-        self.carimbo = ""
+        self.aval_do_dono = aval_do_dono
+        self.carimbo = carimbo
 
 
 def _drenar():
@@ -97,3 +100,155 @@ def test_conteudo_vazio_e_recusado():
     saida = despachar(_Decisao("anotar_memoria", {"titulo": "ok", "conteudo": "  "}))
     assert not saida.ok
     assert memoria.listar() == []
+
+
+# --- ler_nota -------------------------------------------------------------
+
+def test_ler_nota_devolve_o_conteudo_inteiro_e_marca_como_lida():
+    memoria.escrever("Celular Redmi", "6/128 GB.\n\n## ADB\ncom travas")
+    saida = despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    assert saida.ok
+    assert "6/128 GB" in saida.mensagem and "com travas" in saida.mensagem
+    assert leituras.foi_lido(memoria.caminho_da("celular-redmi"))
+
+
+def test_ler_nota_que_nao_existe_e_recusada():
+    saida = despachar(_Decisao("ler_nota", {"nome": "nunca-existiu"}))
+    assert not saida.ok
+
+
+# --- a trava de ler-antes ----------------------------------------------------
+
+def test_trocar_trecho_sem_ler_antes_e_recusado():
+    memoria.escrever("Celular Redmi", "6/128 GB.")
+    saida = despachar(_Decisao("trocar_trecho", {
+        "nome": "Celular Redmi", "velho": "6/128", "novo": "8/256",
+    }))
+    assert not saida.ok
+    assert "ler_nota" in saida.sugestao
+
+
+def test_reescrever_nota_sem_ler_antes_e_recusado():
+    memoria.escrever("Celular Redmi", "texto velho")
+    saida = despachar(_Decisao("reescrever_nota", {
+        "nome": "Celular Redmi", "conteudo": "texto novo",
+    }))
+    assert not saida.ok
+
+
+def test_apagar_nota_sem_ler_antes_ainda_pede_confirmacao_primeiro():
+    """apagar_nota SEMPRE confirma (item 3, gate do despachante, roda ANTES da
+    tool) — a trava de ler-antes só é conferida na hora de executar de
+    verdade, depois do "sim" do dono."""
+    memoria.escrever("Celular Redmi", "specs")
+    saida = despachar(_Decisao("apagar_nota", {"nome": "Celular Redmi"}))
+    assert isinstance(saida, Pendente)
+    assert memoria.caminho_da("Celular Redmi").exists()
+
+
+def test_apagar_nota_confirmada_sem_nunca_ter_lido_falha_na_execucao():
+    memoria.escrever("Celular Redmi", "specs")
+    pendente = despachar(_Decisao("apagar_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao(
+        pendente.intencao, pendente.params, aval_do_dono=True, carimbo=pendente.carimbo,
+    ))
+    assert not saida.ok
+    assert "ler_nota" in saida.sugestao
+    assert memoria.caminho_da("Celular Redmi").exists()
+
+
+def test_ler_e_depois_mexer_funciona():
+    memoria.escrever("Celular Redmi", "6/128 GB.")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("trocar_trecho", {
+        "nome": "Celular Redmi", "velho": "6/128", "novo": "8/256",
+    }))
+    assert saida.ok
+
+
+def test_arquivo_mudado_por_fora_depois_de_ler_derruba_a_trava():
+    memoria.escrever("Celular Redmi", "6/128 GB.")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    # alguém (o dono, outro processo) mexeu no arquivo por fora
+    memoria.caminho_da("Celular Redmi").write_text("outra coisa bem diferente", encoding="utf-8")
+    saida = despachar(_Decisao("trocar_trecho", {
+        "nome": "Celular Redmi", "velho": "outra", "novo": "nova",
+    }))
+    assert not saida.ok
+    assert "ler_nota" in saida.sugestao
+
+
+# --- trocar_trecho: achar-e-substituir ---------------------------------------
+
+def test_trocar_trecho_troca_a_ocorrencia_unica():
+    memoria.escrever("Celular Redmi", "6/128 GB de armazenamento.")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("trocar_trecho", {
+        "nome": "Celular Redmi", "velho": "6/128 GB", "novo": "8/256 GB",
+    }))
+    assert saida.ok
+    corpo = memoria.caminho_da("Celular Redmi").read_text(encoding="utf-8")
+    assert "8/256 GB de armazenamento." in corpo and "6/128" not in corpo
+
+
+def test_trecho_nao_encontrado_e_erro_explicando():
+    memoria.escrever("Celular Redmi", "6/128 GB.")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("trocar_trecho", {
+        "nome": "Celular Redmi", "velho": "16/512", "novo": "x",
+    }))
+    assert not saida.ok
+    assert "Não achei" in saida.mensagem
+
+
+def test_trecho_repetido_e_erro_explicando():
+    memoria.escrever("Celular Redmi", "GB e GB de novo GB.")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("trocar_trecho", {
+        "nome": "Celular Redmi", "velho": "GB", "novo": "gigabytes",
+    }))
+    assert not saida.ok
+    assert "3 vezes" in saida.mensagem
+
+
+# --- reescrever_nota ----------------------------------------------------------
+
+def test_reescrever_nota_troca_o_arquivo_inteiro():
+    memoria.escrever("Celular Redmi", "texto velho, bagunçado")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("reescrever_nota", {
+        "nome": "Celular Redmi", "conteudo": "# Celular Redmi\n\ntexto novo, organizado",
+    }))
+    assert saida.ok
+    corpo = memoria.caminho_da("Celular Redmi").read_text(encoding="utf-8")
+    assert "texto novo, organizado" in corpo and "bagunçado" not in corpo
+
+
+def test_reescrever_com_conteudo_vazio_e_recusado():
+    memoria.escrever("Celular Redmi", "texto velho")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("reescrever_nota", {"nome": "Celular Redmi", "conteudo": "  "}))
+    assert not saida.ok
+    assert "texto velho" in memoria.caminho_da("Celular Redmi").read_text(encoding="utf-8")
+
+
+# --- apagar_nota: sempre confirma --------------------------------------------
+
+def test_apagar_nota_pede_confirmacao_mesmo_apos_ler():
+    memoria.escrever("Celular Redmi", "specs")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao("apagar_nota", {"nome": "Celular Redmi"}))
+    assert isinstance(saida, Pendente)
+    assert "Celular Redmi" in saida.pergunta
+    assert memoria.caminho_da("Celular Redmi").exists()
+
+
+def test_apagar_nota_com_aval_do_dono_apaga():
+    memoria.escrever("Celular Redmi", "specs")
+    despachar(_Decisao("ler_nota", {"nome": "Celular Redmi"}))
+    pendente = despachar(_Decisao("apagar_nota", {"nome": "Celular Redmi"}))
+    saida = despachar(_Decisao(
+        pendente.intencao, pendente.params, aval_do_dono=True, carimbo=pendente.carimbo,
+    ))
+    assert saida.ok
+    assert not memoria.caminho_da("Celular Redmi").exists()
