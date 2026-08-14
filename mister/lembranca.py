@@ -42,7 +42,7 @@ def lembrar(texto: str) -> list[tuple[str, str]]:
     de entrada primeiro e depois as visitadas pela caminhada, na ordem.
 
     Vazio quando nada casa de verdade — memória calada é melhor que memória
-    metida. Levanta `IndiceIndisponivel` (do índice) com o Ollama fora do ar;
+    metida. Levanta `IndiceIndisponivel` (do índice) com o modelo indisponível;
     a palavra pro dono é de quem monta o prompt, não daqui."""
     pontuadas = indice.procurar(texto)
     if not pontuadas or pontuadas[0][1] < LIMIAR_ENTRADA:

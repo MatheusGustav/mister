@@ -21,7 +21,7 @@ zera o registro pra um não vazar leitura pro outro.
 """
 import pytest
 
-from mister import leituras
+from mister import indice, leituras
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,12 @@ def mister_isolado(monkeypatch, tmp_path):
     monkeypatch.setenv("MISTER_REGRAS", str(tmp_path / "MISTER.md"))
     monkeypatch.setenv("MISTER_MEMORIA", str(tmp_path / "memoria"))
     monkeypatch.setenv("MISTER_INDICE", str(tmp_path / "indice.json"))
-    # Porta morta de propósito: teste que esquecer de dublar o embutir acha
-    # "conexão recusada" na hora, nunca o Ollama REAL da máquina.
-    monkeypatch.setenv("MISTER_OLLAMA", "http://127.0.0.1:9")
+
+    def _sem_dublagem(textos):
+        raise indice.IndiceIndisponivel("o teste não dublou indice.embutir")
+
+    # Sem servidor não há mais porta morta pra proteger a suite: quem
+    # esquecer de dublar o embutir acha este erro na hora, nunca baixa pesos
+    # nem sobe o modelo de verdade durante os testes.
+    monkeypatch.setattr(indice, "embutir", _sem_dublagem)
     leituras.esquecer_tudo()

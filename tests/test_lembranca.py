@@ -89,12 +89,12 @@ def test_sem_nada_parecido_o_bloco_nem_existe(monkeypatch):
 
 
 def test_buscador_fora_do_ar_vira_aviso_curto_e_nao_derruba():
-    """O caso real da máquina: Ollama de usuário, fora do ar (a porta morta do
+    """O caso real de suite: indice.embutir sem dublagem (o dublê autouse do
     conftest). A resposta sai SEM memória e o prompt pede o aviso curto — a
     recusa com receita do jeito ekodide, nunca um turno perdido."""
     memoria.escrever("Celular Redmi", "specs")
     bloco = prompts.montar_memoria("meu celular")
-    assert "fora do ar" in bloco and "ollama serve" in bloco
+    assert "fora do ar" in bloco and "não dublou" in bloco
 
 
 # --- a costura no cérebro -----------------------------------------------------
@@ -136,7 +136,7 @@ def test_a_consulta_e_a_fala_do_dono_nao_o_recado_do_sistema(monkeypatch):
 
 def test_conversa_nova_sem_memoria_nao_busca_nada(monkeypatch):
     """Grafo vazio: nem consulta se embute — o Mister de máquina limpa segue
-    subindo e conversando sem Ollama nenhum."""
+    subindo e conversando sem baixar nada."""
     cerebro = _CerebroDeMentira()
     cerebro.proximo_passo([{"role": "user", "content": "oi"}])
     assert "MEMÓRIA DE LONGO PRAZO" not in cerebro.sistemas[0]

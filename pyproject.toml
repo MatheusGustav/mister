@@ -12,6 +12,15 @@ authors = [{ name = "Matheus Gustav" }]
 dependencies = [
     "pydantic>=2,<3",
     "rich>=13",
+    # O embeddinggemma roda DENTRO do processo (item 6, 14/08/2026): sem
+    # servidor, sem Ollama. onnxruntime executa o grafo (a conversão
+    # ISOISS/embeddinggemma-300m-ONNX-sentencetransformers já traz as camadas
+    # Dense do pooling dentro do ONNX — testado contra o Ollama, cosseno
+    # cruzado ≥ 0.99); tokenizers faz o dialeto de busca virar tokens; numpy é
+    # o formato que o onnxruntime espera na entrada/saída.
+    "onnxruntime>=1.20",
+    "tokenizers>=0.20",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

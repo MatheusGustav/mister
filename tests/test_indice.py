@@ -27,7 +27,7 @@ def _vetor_de(texto: str) -> list[float]:
 
 @pytest.fixture
 def embutidor_de_mentira(monkeypatch):
-    """Troca o Ollama por contagem de palavras e conta os LOTES pedidos."""
+    """Troca o modelo por contagem de palavras e conta os LOTES pedidos."""
     lotes: list[list[str]] = []
 
     def _embutir(textos):
@@ -63,7 +63,7 @@ def test_atualizar_embute_a_nota_nova_e_depois_sossega(embutidor_de_mentira):
     indice.atualizar()
     assert len(embutidor_de_mentira) == 1  # embutiu a nota nova
     indice.atualizar()
-    assert len(embutidor_de_mentira) == 1  # nada mudou: só stat, sem Ollama
+    assert len(embutidor_de_mentira) == 1  # nada mudou: só stat, sem embutir
 
 
 def test_nota_mudada_e_re_embutida(embutidor_de_mentira):
@@ -114,16 +114,16 @@ def test_o_score_da_nota_e_o_da_melhor_secao(embutidor_de_mentira):
     assert nomes[0] == "diario-da-maquina"
 
 
-def test_grafo_vazio_devolve_lista_vazia_sem_ollama(embutidor_de_mentira):
+def test_grafo_vazio_devolve_lista_vazia_sem_embutir(embutidor_de_mentira):
     assert indice.procurar("qualquer coisa") == []
     assert embutidor_de_mentira == []  # nem a consulta foi embutida
 
 
-# --- o servidor fora do ar ----------------------------------------------------
+# --- o modelo indisponível -----------------------------------------------------
 
-def test_ollama_fora_do_ar_vira_indisponivel_com_receita():
-    """Sem dublê: bate na porta morta do conftest e falha na hora — é o caso
-    real da máquina (Ollama de usuário, sem serviço, ninguém sobe no boot)."""
+def test_sem_dublagem_vira_indisponivel():
+    """Sem dublê: cai no dublê autouse do conftest e falha na hora — ninguém
+    baixa pesos nem sobe o modelo de verdade durante a suite."""
     memoria.escrever("Celular Redmi", "specs")
-    with pytest.raises(indice.IndiceIndisponivel, match="ollama serve"):
+    with pytest.raises(indice.IndiceIndisponivel):
         indice.procurar("meu celular")
