@@ -25,9 +25,14 @@ dev = ["pytest>=8"]
 # gravar) nasceu na 0.1.1. Com a 0.1.0 o import passa e a tool quebra na hora
 # de usar — o pior tipo de falha, a que só aparece tarde.
 celular = ["ekodide>=0.1.1"]
+# A TUI de tela cheia (mister/tui.py) é extra pelo MESMO desenho do celular:
+# o Mister sobe e roda sem ela (a pele simples continua sendo o `mister`), e o
+# `mister-tui` sem o extra recusa com receita em vez de estourar.
+tui = ["textual>=1"]
 
 [project.scripts]
 mister = "mister.__main__:main"
+mister-tui = "mister.tui:main"
 
 [tool.setuptools.packages.find]
 include = ["mister*"]
