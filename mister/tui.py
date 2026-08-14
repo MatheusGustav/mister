@@ -79,7 +79,8 @@ CORES = {
     "painel": "#191512",     # cabeçalho, bloco do dono, caixa — o preto brilhoso
     "texto": "#ddd5cc",      # texto normal — um claro quente, pra casar
     "apagado": "#80756a",    # bastidor, medidor, atalhos, linha do modelo
-    "acento": "#b87f4c",     # a barra dos blocos, o título — doce de leite mais escuro
+    "acento": "#b87f4c",     # o título e as bordas de destaque — doce de leite
+    "barra": "#8f6236",      # a barra na esquerda dos blocos — o café mais escuro
     "ambar": "#e3bc6a",      # pergunta/confirmação — mais dourado, pra não sumir no acento
     "vermelho": "#e0555f",   # erro
 }
@@ -129,7 +130,7 @@ Screen {
 }
 .dono {
     background: $painel;
-    border-left: thick $acento;
+    border-left: thick $barra;
     padding: 0 2;
     margin: 0 0 1 0;
 }
@@ -150,7 +151,7 @@ Screen {
 }
 #caixa {
     background: $painel;
-    border-left: thick $acento;
+    border-left: thick $barra;
     padding: 0 1;
     height: auto;
 }
