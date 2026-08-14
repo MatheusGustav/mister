@@ -195,9 +195,9 @@ class Cerebro(_CerebroBase):
             # de ferramenta). O afrouxar vem do espaço pra pensar, não de mais
             # aleatoriedade.
             "temperature": 0.0,
-            # 1600 (não 800): no modo pensante o raciocínio CONSOME o teto — teto
+            # 9000 (não 1600): no modo pensante o raciocínio CONSOME o teto — teto
             # curto cortaria a resposta no meio.
-            "max_tokens": 1600,
+            "max_tokens": 9000,
             "tools": tools,
             # Um passo por vez: pede UMA chamada por resposta. Nem todo provedor
             # honra — o proximo_passo pega só a 1ª de qualquer jeito.
@@ -217,9 +217,9 @@ class Cerebro(_CerebroBase):
                 method="POST",
             )
             try:
-                # 120s: com raciocínio ligado e conversa longa, a API pensa bem
+                # 240s: com raciocínio ligado e conversa longa, a API pensa bem
                 # mais que 30s — timeout curto virava "falha na API" à toa.
-                with urllib.request.urlopen(req, timeout=120) as resp:
+                with urllib.request.urlopen(req, timeout=240) as resp:
                     resposta = json.loads(resp.read().decode("utf-8"))
                 mensagem = resposta["choices"][0]["message"]
                 if not isinstance(mensagem, dict):
