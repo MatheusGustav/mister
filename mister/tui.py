@@ -444,15 +444,38 @@ def criar_app():
                 painel.mount(Static(Text(texto), classes=classe))
             painel.scroll_end(animate=False)
 
+        # O giro da espera (os mesmos quadros do spinner "dots" do rich).
+        QUADROS_ESPERA = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
         def mostrar_espera(self, rotulo: str) -> None:
             """O aviso de espera, no pé da conversa — onde a resposta vai
-            surgir. Um por vez: o novo tira o anterior."""
+            surgir: o desenho girando na frente do rótulo. Um por vez: o novo
+            tira o anterior."""
             self.tirar_espera()
+            self._rotulo_espera = rotulo
+            self._quadro_espera = 0
             painel = self.query_one("#conversa", VerticalScroll)
-            painel.mount(Static(Text(rotulo), classes="espera", id="espera"))
+            painel.mount(Static(
+                Text(f"{self.QUADROS_ESPERA[0]} {rotulo}"),
+                classes="espera", id="espera",
+            ))
             painel.scroll_end(animate=False)
+            self._relogio_espera = self.set_interval(0.08, self._girar_espera)
+
+        def _girar_espera(self) -> None:
+            pecas = self.query("#espera")
+            if not pecas:
+                return
+            self._quadro_espera = (self._quadro_espera + 1) % len(self.QUADROS_ESPERA)
+            pecas.first(Static).update(Text(
+                f"{self.QUADROS_ESPERA[self._quadro_espera]} {self._rotulo_espera}"
+            ))
 
         def tirar_espera(self) -> None:
+            relogio = getattr(self, "_relogio_espera", None)
+            if relogio is not None:
+                relogio.stop()
+                self._relogio_espera = None
             for peca in self.query("#espera"):
                 peca.remove()
 
@@ -527,10 +550,10 @@ class PeleTui:
             self.app.call_from_thread(self.app.tirar_espera)
 
     def pensando(self):
-        return self._ocupado("pensando…")
+        return self._ocupado("pensando")
 
     def atividade(self, tipo: str, detalhe: str = ""):
-        rotulo = {"pensando": "pensando…", "executando": "fazendo"}.get(tipo, tipo)
+        rotulo = {"pensando": "pensando", "executando": "fazendo"}.get(tipo, tipo)
         return self._ocupado(f"{rotulo} {detalhe}".strip())
 
 
