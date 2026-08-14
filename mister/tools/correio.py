@@ -24,7 +24,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from mister import envios
+from mister import envios, interruptores
 from mister.registry import tool
 from mister.resultado import Resultado
 
@@ -54,12 +54,20 @@ DESTINO_CELULAR = "celular"
 # --- o seam do extra opcional ------------------------------------------------
 
 def _disponivel() -> bool:
-    """O ekodide está instalado? UM lugar só responde isso — as cinco tools
-    passam por aqui antes de qualquer coisa."""
-    return ekodide is not None
+    """O ekodide está instalado E o interruptor do celular está ligado? UM
+    lugar só responde isso — as cinco tools passam por aqui antes de qualquer
+    coisa. (O interruptor é botão do dono, na TUI; desligado, as tools recusam
+    com a explicação do _sem_ekodide trocada pela do botão.)"""
+    return ekodide is not None and interruptores.ligado("celular")
 
 
 def _sem_ekodide() -> Resultado:
+    if ekodide is not None and not interruptores.ligado("celular"):
+        return Resultado(
+            False,
+            "As ferramentas do celular estão DESLIGADAS (interruptor do dono). "
+            "Siga sem o celular e, se a tarefa depender dele, avise o dono.",
+        )
     return Resultado(
         False,
         "Essa ferramenta precisa do 'ekodide' (o correio entre PC e celular) e "

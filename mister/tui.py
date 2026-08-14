@@ -35,6 +35,11 @@ O COMPORTAMENTO (decidido em 13/08/2026, na conferência da doc do OpenCode):
   - `!` NA FRENTE roda comando no shell e mostra a saída na conversa (só
     mostra — não entra no histórico do cérebro). Sem o `@` de anexar
     arquivo, decisão do dono.
+  - O RELÓGIO DO REVISAR: 10 min do dono parado (janela aberta) e o laço
+    dispara UMA passada de arrumação das notas em segundo plano — ver
+    `mister/revisar.py`; rearma na próxima mensagem.
+  - /interruptores: os botões do dono — anotar, revisar e celular — pra
+    ligar/desligar na tela (`mister/interruptores.py`).
 
 MUDAR O VISUAL: as cores moram no dicionário `CORES` e o desenho no `_CSS`,
 logo abaixo — mexer ali não toca na lógica. Os atalhos moram em `BINDINGS` e
@@ -59,6 +64,7 @@ from __future__ import annotations
 import ctypes
 import os
 import queue
+import time
 import subprocess
 import threading
 from contextlib import contextmanager
@@ -67,7 +73,7 @@ from pathlib import Path
 
 from rich.text import Text
 
-from mister import conversa
+from mister import conversa, interruptores, memoria
 
 # --- AS CORES (mexa à vontade) ------------------------------------------------
 # A paleta é o PANTERO, o gato do dono (decisão de 13/08/2026): preto, marrom
@@ -97,8 +103,14 @@ COMANDOS = {
     "nova": "começar uma conversa nova (a atual fica guardada)",
     "conversas": "listar as conversas guardadas e retomar uma",
     "exportar": "salvar esta conversa num arquivo .md",
+    "interruptores": "ligar/desligar o anotar, o revisar e o celular",
     "sair": "fechar o Mister",
 }
+
+# O gatilho do revisar: o dono parado este tanto de tempo (janela aberta) e o
+# Mister vai arrumar as próprias notas em segundo plano. Uma passada só — o
+# gatilho rearma na próxima mensagem. Ver mister/revisar.py.
+OCIOSIDADE_S = 10 * 60
 
 # Onde o /exportar grava (o env é o mesmo truque do resto do ~/.mister: os
 # testes apontam pra longe do real).
@@ -167,10 +179,10 @@ Screen {
     width: 1fr;
     color: $apagado;
 }
-Paleta, Sessoes {
+Paleta, Sessoes, Interruptores {
     align: center middle;
 }
-#paleta_lista, #sessoes_lista {
+#paleta_lista, #sessoes_lista, #interruptores_lista {
     width: 64;
     max-height: 16;
     background: $painel;
@@ -285,6 +297,42 @@ def criar_app():
         def action_fechar(self) -> None:
             self.dismiss(None)
 
+    class Interruptores(ModalScreen):
+        """/interruptores: os botões do dono. Enter alterna o apontado (a
+        lista se redesenha no lugar); ESC fecha."""
+
+        BINDINGS = [Binding("escape", "fechar", "fechar")]
+
+        def compose(self) -> ComposeResult:
+            yield OptionList(*self._opcoes(), id="interruptores_lista")
+
+        def _opcoes(self) -> list:
+            return [
+                Option(
+                    f"{'●' if interruptores.ligado(nome) else '○'} {nome} — "
+                    f"{descricao} "
+                    f"[{'ligado' if interruptores.ligado(nome) else 'DESLIGADO'}]",
+                    id=nome,
+                )
+                for nome, descricao in interruptores.NOMES.items()
+            ]
+
+        def on_option_list_option_selected(self, evento) -> None:
+            nome = evento.option.id
+            novo = interruptores.alternar(nome)
+            lista = self.query_one(OptionList)
+            apontado = lista.highlighted
+            lista.clear_options()
+            lista.add_options(self._opcoes())
+            lista.highlighted = apontado
+            self.app.anexar(
+                "bastidor",
+                f"(interruptor '{nome}' agora {'ligado' if novo else 'desligado'})",
+            )
+
+        def action_fechar(self) -> None:
+            self.dismiss(None)
+
     class MisterTui(App):
         """O app: desenha a tela e faz a ponte com a thread de trabalho."""
 
@@ -327,11 +375,31 @@ def criar_app():
 
         def on_mount(self) -> None:
             self.query_one("#entrada", Input).focus()
+            # O relógio do revisar: confere a cada 15s se o dono está parado
+            # há OCIOSIDADE_S. `_revisao_armada` garante UMA passada por
+            # ociosidade — rearma quando ele digitar de novo.
+            self._ultimo_toque = time.monotonic()
+            self._revisao_armada = True
+            self.set_interval(15, self._checar_ociosidade)
             threading.Thread(target=_laco, args=(self,), daemon=True).start()
+
+        def _checar_ociosidade(self) -> None:
+            if not self._revisao_armada or self.ocupado:
+                return
+            if time.monotonic() - self._ultimo_toque < OCIOSIDADE_S:
+                return
+            # Interruptor desligado ou grafo vazio: nem dispara (e continua
+            # armado — se o dono ligar o botão, a próxima conferida pega).
+            if not interruptores.ligado("revisar") or not memoria.listar():
+                return
+            self._revisao_armada = False
+            self.fila_do_teclado.put(("revisar", None))
 
         # --- o teclado --------------------------------------------------------
 
         def on_input_submitted(self, evento) -> None:
+            self._ultimo_toque = time.monotonic()
+            self._revisao_armada = True  # o gatilho do revisar rearma aqui
             texto = evento.value.strip()
             if not texto:
                 return
@@ -394,6 +462,8 @@ def criar_app():
                 self.fila_do_teclado.put(("nova", None))
             elif comando == "exportar":
                 self.fila_do_teclado.put(("exportar", None))
+            elif comando == "interruptores":
+                self.push_screen(Interruptores())
             elif comando == "conversas":
                 sessoes = conversa.listar_sessoes()
                 if not sessoes:
@@ -561,7 +631,7 @@ def _laco(app) -> None:
     """O laço do agente — o mesmo vai-e-vem do `__main__`, rodando na thread de
     trabalho e falando com a tela pela PeleTui. Também atende as ordens da
     tela (as tuplas de comando), porque o histórico mora aqui."""
-    from mister import envios
+    from mister import envios, revisar
     from mister.agente import conversar
     from mister.brain import criar_cerebro
     from mister.dispatcher import despachar
@@ -604,6 +674,15 @@ def _laco(app) -> None:
                     historico = conversa.carregar_sessao(argumento)
                     app.call_from_thread(app.repovoar, blocos_da_conversa(historico))
                     pele.nota(f"(retomada — {len(historico)} mensagens lembradas)")
+                elif nome == "revisar":
+                    # O gatilho da ociosidade (uma passada; ver revisar.py).
+                    # Roda pelo envios: a fala de desfecho chega como recado
+                    # no turno seguinte, o caminho de sempre.
+                    envios.disparar("revisão das notas", lambda: revisar.rodar(cerebro))
+                    pele.nota(
+                        "(10 min parado — fui revisar minhas notas em segundo "
+                        "plano; conto o desfecho na próxima fala)"
+                    )
                 elif nome == "exportar":
                     try:
                         caminho = exportar(historico)
