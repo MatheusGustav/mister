@@ -20,12 +20,18 @@ A estrutura, a textura E o comportamento vêm do OpenCode, por pedido do dono
 
 O COMPORTAMENTO (decidido em 13/08/2026, na conferência da doc do OpenCode):
 
-  - ESC INTERROMPE o turno em andamento. Honestidade: o corte vale no fim do
-    passo — uma ida à API que já saiu não é derrubada no meio; o cancelamento
-    acontece quando ela voltar. Derrubar no meio exige mexer no motor
-    (brain._chamar), que é assunto do repo, não da pele.
+  - ESC INTERROMPE o turno em andamento, COOPERATIVO: o pedido fica anotado
+    num Event e a PeleTui o transforma em KeyboardInterrupt no fecho do passo
+    (ou na hora, se o Mister estava esperando o dono responder uma pergunta —
+    aí um sentinela acorda a fila de resposta). Honestidade: uma ida à API que
+    já saiu não é derrubada no meio — o corte vale quando ela voltar; derrubar
+    no meio exige mexer no motor (brain._chamar), que é assunto do repo, não
+    da pele. (Já foi PyThreadState_SetAsyncExc: a exceção assíncrona não
+    acordava a thread parada na fila, aterrissava atrasada comendo a fala
+    seguinte, e um ESC duplo podia matar o laço calado.)
   - Digitar com o Mister ocupado NÃO se perde: entra na fila e é atendido
-    quando ele desocupar.
+    quando ele desocupar. Resposta de pergunta vai por FILA PRÓPRIA — fala
+    que já estava na outra fila nunca é consumida como resposta.
   - COMANDOS DE BARRA na caixa: /nova, /conversas, /exportar, /sair
     (sem /ajuda, decisão do dono — a paleta cumpre esse papel).
   - PALETA no ctrl+a (não ctrl+p, decisão do dono): os mesmos comandos da
@@ -49,7 +55,7 @@ leem o MESMO — comando novo aparece nos dois lugares sozinho).
 ARQUITETURA: o app textual é o dono da THREAD PRINCIPAL (e do teclado); o
 laço do agente — o mesmo do `__main__` — roda numa thread de trabalho. A
 fronteira se cruza por dois caminhos só: `call_from_thread` (trabalho -> tela)
-e uma fila (teclado e comandos -> trabalho). A `PeleTui` embrulha os dois no
+e as filas (teclado/comandos e respostas de pergunta -> trabalho). A `PeleTui` embrulha os dois no
 MESMO contrato da pele simples (`interface.Pele`), então o agente não sabe em
 qual das duas está falando.
 
@@ -61,7 +67,6 @@ conta mensagens).
 """
 from __future__ import annotations
 
-import ctypes
 import os
 import queue
 import time
@@ -234,6 +239,12 @@ def exportar(historico: list[dict], pasta: str | None = None) -> Path:
     return caminho
 
 
+# O sentinela do ESC numa pergunta pendente: o action_interromper o põe na
+# fila de RESPOSTA pra acordar a thread parada; a PeleTui o transforma em
+# KeyboardInterrupt na hora — sem exceção assíncrona.
+CANCELAR = object()
+
+
 def interpretar_barra(texto: str) -> str | None:
     """O nome do comando numa mensagem de barra ('/nova' -> 'nova'), ou None se
     a mensagem não é comando. Nome desconhecido volta como veio — quem avisa
@@ -284,8 +295,11 @@ def criar_app():
             self._sessoes = sessoes
 
         def compose(self) -> ComposeResult:
+            # Text de propósito: o resumo é a 1ª FALA DO DONO — string crua o
+            # OptionList interpreta como markup ('[/red]' na fala derrubava o
+            # app inteiro com MarkupError).
             yield OptionList(
-                *[Option(f"{s['quando']} — {s['resumo']} ({s['n']} mensagens)",
+                *[Option(Text(f"{s['quando']} — {s['resumo']} ({s['n']} mensagens)"),
                          id=str(s["caminho"]))
                   for s in self._sessoes],
                 id="sessoes_lista",
@@ -307,11 +321,15 @@ def criar_app():
             yield OptionList(*self._opcoes(), id="interruptores_lista")
 
         def _opcoes(self) -> list:
+            # Text de propósito: como string crua, o '[ligado]' era engolido
+            # pelo parser de markup do OptionList e nunca aparecia na tela.
             return [
                 Option(
-                    f"{'●' if interruptores.ligado(nome) else '○'} {nome} — "
-                    f"{descricao} "
-                    f"[{'ligado' if interruptores.ligado(nome) else 'DESLIGADO'}]",
+                    Text(
+                        f"{'●' if interruptores.ligado(nome) else '○'} {nome} — "
+                        f"{descricao} "
+                        f"[{'ligado' if interruptores.ligado(nome) else 'DESLIGADO'}]"
+                    ),
                     id=nome,
                 )
                 for nome, descricao in interruptores.NOMES.items()
@@ -353,8 +371,15 @@ def criar_app():
             # O teclado/comandos -> trabalho: str é fala do dono; tupla
             # (comando, argumento) é ordem da tela; None é o app fechando.
             self.fila_do_teclado: "queue.Queue[object]" = queue.Queue()
-            # Preenchidos pela thread de trabalho (só leitura aqui).
-            self.ident_do_laco: int = 0
+            # Resposta de pergunta/confirmação vem por FILA PRÓPRIA: fala que
+            # já estava na outra fila (digitada ANTES da pergunta aparecer)
+            # continua sendo promessa de próximo turno, nunca vira resposta.
+            self.fila_de_resposta: "queue.Queue[object]" = queue.Queue()
+            # Ligada pela PeleTui enquanto uma pergunta espera resposta.
+            self.aguardando_resposta: bool = False
+            # O pedido do ESC: a PeleTui confere no fecho de cada passo.
+            self.cancelar = threading.Event()
+            # Preenchido pela thread de trabalho (só leitura aqui).
             self.ocupado: bool = False
 
         # --- a tela -----------------------------------------------------------
@@ -397,6 +422,11 @@ def criar_app():
 
         # --- o teclado --------------------------------------------------------
 
+        def on_input_changed(self, evento) -> None:
+            # Digitar SEM enviar também é atividade: o relógio do revisar não
+            # pode disparar com o dono no meio de uma frase longa.
+            self._ultimo_toque = time.monotonic()
+
         def on_input_submitted(self, evento) -> None:
             self._ultimo_toque = time.monotonic()
             self._revisao_armada = True  # o gatilho do revisar rearma aqui
@@ -422,21 +452,27 @@ def criar_app():
                 self._rodar_shell(texto[1:].strip())
                 return
 
-            # Fala do dono. Com o Mister ocupado, fica na fila e entra quando
-            # ele desocupar — digitado nunca se perde.
+            # Fala do dono. Com uma pergunta na tela, é a RESPOSTA dela (fila
+            # própria); senão, fica na fila do teclado e entra quando o Mister
+            # desocupar — digitado nunca se perde.
             self.anexar("dono", texto)
-            self.fila_do_teclado.put(texto)
+            if self.aguardando_resposta:
+                self.fila_de_resposta.put(texto)
+            else:
+                self.fila_do_teclado.put(texto)
 
         def action_interromper(self) -> None:
-            """ESC: cancela o turno em andamento. O corte vale no fim do passo
-            (ver o topo do arquivo); parado, não faz nada."""
-            if not (self.ocupado and self.ident_do_laco):
+            """ESC: cancela o turno em andamento — cooperativo, o corte vale
+            no fim do passo (ver o topo do arquivo); parado, não faz nada. A
+            ORDEM importa: primeiro o Event, depois olhar a pergunta — é o que
+            garante que uma pergunta abrindo neste exato instante ou vê o
+            Event, ou recebe o sentinela (nunca escapa dos dois)."""
+            if not self.ocupado:
                 return
             self.anexar("bastidor", "(interrompendo — corto no fim do passo em andamento)")
-            ctypes.pythonapi.PyThreadState_SetAsyncExc(
-                ctypes.c_ulong(self.ident_do_laco),
-                ctypes.py_object(KeyboardInterrupt),
-            )
+            self.cancelar.set()
+            if self.aguardando_resposta:
+                self.fila_de_resposta.put(CANCELAR)  # acorda a pergunta parada
 
         def action_paleta(self) -> None:
             if self.ocupado:
@@ -445,7 +481,8 @@ def criar_app():
             self.push_screen(Paleta(), self._da_paleta)
 
         def action_quit(self) -> None:
-            self.fila_do_teclado.put(None)  # acorda a thread parada no get()
+            self.fila_do_teclado.put(None)   # acorda a thread parada no get()
+            self.fila_de_resposta.put(None)  # ...ou parada esperando resposta
             self.exit()
 
         # --- os comandos ------------------------------------------------------
@@ -520,24 +557,26 @@ def criar_app():
         def mostrar_espera(self, rotulo: str) -> None:
             """O aviso de espera, no pé da conversa — onde a resposta vai
             surgir: o desenho girando na frente do rótulo. Um por vez: o novo
-            tira o anterior."""
+            tira o anterior. O widget vai por REFERÊNCIA, sem id fixo — o
+            remove() do textual é assíncrono, e um id fixo colidia
+            (DuplicateIds) se dois mostrar caíssem no mesmo tick."""
             self.tirar_espera()
             self._rotulo_espera = rotulo
             self._quadro_espera = 0
             painel = self.query_one("#conversa", VerticalScroll)
-            painel.mount(Static(
-                Text(f"{self.QUADROS_ESPERA[0]} {rotulo}"),
-                classes="espera", id="espera",
-            ))
+            self._peca_espera = Static(
+                Text(f"{self.QUADROS_ESPERA[0]} {rotulo}"), classes="espera"
+            )
+            painel.mount(self._peca_espera)
             painel.scroll_end(animate=False)
             self._relogio_espera = self.set_interval(0.08, self._girar_espera)
 
         def _girar_espera(self) -> None:
-            pecas = self.query("#espera")
-            if not pecas:
+            peca = getattr(self, "_peca_espera", None)
+            if peca is None:
                 return
             self._quadro_espera = (self._quadro_espera + 1) % len(self.QUADROS_ESPERA)
-            pecas.first(Static).update(Text(
+            peca.update(Text(
                 f"{self.QUADROS_ESPERA[self._quadro_espera]} {self._rotulo_espera}"
             ))
 
@@ -546,7 +585,9 @@ def criar_app():
             if relogio is not None:
                 relogio.stop()
                 self._relogio_espera = None
-            for peca in self.query("#espera"):
+            peca = getattr(self, "_peca_espera", None)
+            if peca is not None:
+                self._peca_espera = None
                 peca.remove()
 
         def medir(self, texto: str) -> None:
@@ -587,10 +628,31 @@ class PeleTui:
 
     def perguntar(self, prompt: str) -> str:
         """Pergunta do cérebro ou confirmação de ação: âmbar na conversa, e a
-        resposta vem pela mesma caixa de sempre. Comando de barra não vale
+        resposta vem pela mesma caixa — mas pela fila DE RESPOSTA: só vale o
+        que o dono digitar com a pergunta na tela (fala enfileirada antes fica
+        guardada pro próximo turno, como prometido). ESC aqui dentro chega
+        como o sentinela CANCELAR e cancela na hora. Comando de barra não vale
         como resposta (a tela já os bloqueia com o Mister ocupado)."""
-        self.app.call_from_thread(self.app.anexar, "pergunta", prompt.strip())
-        resposta = self.app.fila_do_teclado.get()
+        app = self.app
+        # Sobra de rodada passada (um ESC que chegou tarde demais) não pode
+        # valer como resposta desta pergunta: esvazia antes de perguntar.
+        while True:
+            try:
+                app.fila_de_resposta.get_nowait()
+            except queue.Empty:
+                break
+        app.aguardando_resposta = True
+        try:
+            # ESC que chegou ENTRE o passo anterior e a pergunta: o Event já
+            # está de pé, e o sentinela não veio (a fila ainda não esperava).
+            if app.cancelar.is_set():
+                raise KeyboardInterrupt
+            app.call_from_thread(app.anexar, "pergunta", prompt.strip())
+            resposta = app.fila_de_resposta.get()
+        finally:
+            app.aguardando_resposta = False
+        if resposta is CANCELAR:
+            raise KeyboardInterrupt
         return resposta if isinstance(resposta, str) else ""
 
     # --- falar com o dono -----------------------------------------------------
@@ -618,6 +680,10 @@ class PeleTui:
             yield
         finally:
             self.app.call_from_thread(self.app.tirar_espera)
+            # O corte do ESC, cooperativo: SEMPRE aqui, no fecho de um passo
+            # — nunca no meio de bytecode alheio como era com o SetAsyncExc.
+            if self.app.cancelar.is_set():
+                raise KeyboardInterrupt
 
     def pensando(self):
         return self._ocupado("pensando")
@@ -639,10 +705,10 @@ def _laco(app) -> None:
     # As tools se cadastram no registro quando o módulo é importado.
     import mister.tools.basic  # noqa: F401
     import mister.tools.correio  # noqa: F401
+    import mister.tools.maquina  # noqa: F401
     import mister.tools.memoria  # noqa: F401
     import mister.tools.regras  # noqa: F401
 
-    app.ident_do_laco = threading.get_ident()
     pele = PeleTui(app)
     try:
         cerebro = criar_cerebro()
@@ -677,12 +743,21 @@ def _laco(app) -> None:
                 elif nome == "revisar":
                     # O gatilho da ociosidade (uma passada; ver revisar.py).
                     # Roda pelo envios: a fala de desfecho chega como recado
-                    # no turno seguinte, o caminho de sempre.
-                    envios.disparar("revisão das notas", lambda: revisar.rodar(cerebro))
-                    pele.nota(
-                        "(10 min parado — fui revisar minhas notas em segundo "
-                        "plano; conto o desfecho na próxima fala)"
-                    )
+                    # no turno seguinte, o caminho de sempre. Passada anterior
+                    # ainda em voo (elas podem passar de 10 min)? Não empilha
+                    # — duas revisões juntas mexeriam nas mesmas notas. E o
+                    # `parar` faz a passada ceder a vez quando o dono voltar.
+                    if revisar.DESCRICAO in envios.em_voo():
+                        pele.nota("(ia revisar as notas de novo, mas a passada anterior ainda não terminou)")
+                    else:
+                        envios.disparar(
+                            revisar.DESCRICAO,
+                            lambda: revisar.rodar(cerebro, parar=lambda: app.ocupado),
+                        )
+                        pele.nota(
+                            "(10 min parado — fui revisar minhas notas em segundo "
+                            "plano; conto o desfecho na próxima fala)"
+                        )
                 elif nome == "exportar":
                     try:
                         caminho = exportar(historico)
@@ -711,6 +786,9 @@ def _laco(app) -> None:
                 conversa.salvar(historico)
             finally:
                 app.ocupado = False
+                # Pedido de ESC que sobrou (o turno acabou antes de um passo
+                # conferir o Event) morre aqui — não vaza pro próximo turno.
+                app.cancelar.clear()
             app.call_from_thread(app.medir, f"{len(historico)} mensagens")
 
         except KeyboardInterrupt:

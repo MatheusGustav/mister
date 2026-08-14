@@ -33,6 +33,10 @@ from mister.brain import Decisao
 from mister.confirmacao import Pendente
 from mister.dispatcher import despachar
 
+# O nome do voo no envios — a TUI consulta `envios.em_voo()` por ele antes de
+# disparar, pra nunca empilhar duas revisões mexendo nas mesmas notas.
+DESCRICAO = "revisão das notas"
+
 # As únicas tools que a revisão pode usar. O cérebro recebe a lista inteira de
 # fichas (o motor é o mesmo da conversa), então o cinto é AQUI: chamada fora
 # desta lista não executa — responde "fora do escopo" e a revisão segue.
@@ -97,36 +101,54 @@ def _executar(decisao: Decisao) -> str:
     return saida.texto()
 
 
-def rodar(cerebro) -> str:
+def rodar(cerebro, parar=None) -> str:
     """UMA passada de revisão, do começo ao fim, e a fala de desfecho (é o
-    formato que o `envios.disparar` espera). Erro de API estoura pro envios
-    transformar em fala de quebra — nunca some calado."""
-    notas, quantas = _notas_no_prompt()
-    if not quantas:
-        return "Fui revisar minhas notas e o grafo está vazio — nada pra fazer."
+    formato que o `envios.disparar` espera). `parar` (opcional) é conferido a
+    cada lote: devolvendo True — o dono voltou a conversar — a passada CEDE A
+    VEZ e para, pra não disputar as notas com um turno vivo. Erro de API
+    estoura pro envios transformar em fala de quebra — nunca some calado."""
+    # As leituras da revisão NÃO valem pra conversa: o registro da trava de
+    # ler-antes volta ao estado de antes no fim da passada — senão o cérebro
+    # DA CONVERSA ganharia aval pra reescrever/apagar nota que nunca leu (o
+    # histórico da revisão é descartado; quem leu foi outro contexto). Nota
+    # que a revisão EDITOU fica automaticamente "mudou por fora" pra marca
+    # antiga da conversa — a trava manda ler de novo, que é o certo.
+    antes = leituras.instantaneo()
+    try:
+        notas, quantas = _notas_no_prompt()
+        if not quantas:
+            return "Fui revisar minhas notas e o grafo está vazio — nada pra fazer."
 
-    historico: list[dict] = [{"role": "user", "content": _INSTRUCAO + notas}]
-    for _ in range(MAX_LOTES):
-        lote = cerebro.proximo_passo(historico)
-        primeira = lote[0]
-        if primeira.intencao in (None, "responder"):
-            resumo = primeira.params.get("mensagem") or primeira.raciocinio or ""
-            return f"Revisei minhas notas ({quantas}). {resumo}".strip()
-        if primeira.intencao == "perguntar":
-            # Sem dono pra responder: fecha o par e manda terminar.
+        historico: list[dict] = [{"role": "user", "content": _INSTRUCAO + notas}]
+        for _ in range(MAX_LOTES):
+            if parar is not None and parar():
+                return (
+                    f"Comecei a revisar minhas notas ({quantas}) mas você voltou "
+                    "a falar comigo — parei pra não mexer nelas no meio da "
+                    "conversa; o que já arrumei ficou."
+                )
+            lote = cerebro.proximo_passo(historico)
+            primeira = lote[0]
+            if primeira.intencao in (None, "responder"):
+                resumo = primeira.params.get("mensagem") or primeira.raciocinio or ""
+                return f"Revisei minhas notas ({quantas}). {resumo}".strip()
+            if primeira.intencao == "perguntar":
+                # Sem dono pra responder: fecha o par e manda terminar.
+                historico.append(_jogada_lote(lote))
+                for decisao in lote:
+                    historico.append(_resposta(decisao, (
+                        "[em segundo plano ninguém responde — termine a revisão "
+                        "com o que dá e resuma em texto]"
+                    )))
+                continue
             historico.append(_jogada_lote(lote))
-            for decisao in lote:
-                historico.append(_resposta(decisao, (
-                    "[em segundo plano ninguém responde — termine a revisão "
-                    "com o que dá e resuma em texto]"
-                )))
-            continue
-        historico.append(_jogada_lote(lote))
-        for decisao in lote[:4]:
-            historico.append(_resposta(decisao, _executar(decisao)))
-        for decisao in lote[4:]:
-            historico.append(_resposta(decisao, "[não executei: passou do teto de 4]"))
-    return (
-        f"Comecei a revisar minhas notas ({quantas}) mas parei no teto de "
-        f"{MAX_LOTES} passos — o que arrumei ficou; o resto fica pra próxima."
-    )
+            for decisao in lote[:4]:
+                historico.append(_resposta(decisao, _executar(decisao)))
+            for decisao in lote[4:]:
+                historico.append(_resposta(decisao, "[não executei: passou do teto de 4]"))
+        return (
+            f"Comecei a revisar minhas notas ({quantas}) mas parei no teto de "
+            f"{MAX_LOTES} passos — o que arrumei ficou; o resto fica pra próxima."
+        )
+    finally:
+        leituras.restaurar(antes)

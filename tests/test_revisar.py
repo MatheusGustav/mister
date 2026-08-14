@@ -5,7 +5,7 @@ LAÇO da revisão — as tools de verdade rodam (grafo do tmp_path), o apagar
 passa pelo Pendente e volta aprovado, e o que é fora do escopo não executa."""
 from __future__ import annotations
 
-from mister import memoria, revisar
+from mister import leituras, memoria, revisar
 from mister.brain import Decisao
 
 # As tools de nota se cadastram no registro ao importar (o despachante precisa).
@@ -48,6 +48,34 @@ def test_revisar_com_grafo_vazio_nem_chama_o_cerebro():
 def test_fora_do_escopo_nao_executa():
     saida = revisar._executar(Decisao("rodar_comando", {"comando": "rm -rf /"}))
     assert "fora do escopo" in saida
+
+
+def test_leituras_da_revisao_nao_valem_pra_conversa():
+    """A passada marca todas as notas como lidas (a trava exige), mas isso é
+    leitura DA REVISÃO: no fim, o registro volta ao de antes — senão a conversa
+    ganharia aval pra reescrever/apagar nota que nunca leu. Marca que a
+    conversa já tinha continua de pé."""
+    memoria.escrever("Nunca lida", "fato")
+    memoria.escrever("Da conversa", "outro fato")
+    ja_lida = memoria.caminho_da("Da conversa")
+    leituras.marcar(ja_lida)
+    cerebro = _CerebroDeMentira([[Decisao("responder", {"mensagem": "tudo em ordem."})]])
+    revisar.rodar(cerebro)
+    assert not leituras.foi_lido(memoria.caminho_da("Nunca lida"))
+    assert leituras.foi_lido(ja_lida)
+
+
+def test_revisar_cede_a_vez_quando_o_dono_volta():
+    """`parar` devolvendo True (o dono voltou a conversar) para a passada antes
+    do próximo lote — revisão não disputa as notas com um turno vivo."""
+    memoria.escrever("Nota", "algo")
+
+    class _NaoChama:
+        def proximo_passo(self, historico):
+            raise AssertionError("com o dono de volta, nem era pra ir à API")
+
+    fala = revisar.rodar(_NaoChama(), parar=lambda: True)
+    assert "parei" in fala
 
 
 def test_estourar_o_teto_para_com_aviso():
