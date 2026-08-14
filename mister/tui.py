@@ -315,9 +315,11 @@ def criar_app():
             # no topo; o medidor mora no rodapé, à direita.
             yield VerticalScroll(id="conversa")
             with Vertical(id="caixa"):
+                # A linha do modo/modelo fica EM CIMA da caixa (decisão do
+                # dono, 14/08/2026), com o "pensando…" ao lado dela.
+                yield Static("", id="linha_modo")
                 yield Static("", id="estado")
                 yield Input(placeholder="fale com o Mister…", id="entrada")
-                yield Static("", id="linha_modo")
             with Horizontal(id="rodape"):
                 yield Static(ATALHOS, id="atalhos")
                 yield Static("", id="medidor")
