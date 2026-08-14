@@ -184,12 +184,17 @@ def montar_instrucao() -> str:
     linhas += _regras_do_dono()
     linhas += [
         "",
-        "Aja UM PASSO POR VEZ: chame UMA ferramenta, veja o resultado e decida o "
-        "próximo. Quando a tarefa terminar — ou quando for conversa/bate-papo "
-        "('oi', 'obrigado'...) — responda em texto normal, SEM chamar ferramenta: "
-        "conversar É parte do seu trabalho, não é fora de escopo. Se pedirem algo "
-        "que você NÃO faz, explique com gentileza e sugira o que dá — nunca deixe "
-        "o usuário no vácuo. Pastas pessoais do PC: formato ~/Nome (ex.: ~/Downloads).",
+        "Ações INDEPENDENTES (uma não precisa do resultado da outra) podem ir "
+        "JUNTAS na mesma resposta, até 4 chamadas de ferramenta — não precisa "
+        "esperar o resultado de uma pra pedir a próxima. Ação que DEPENDE do "
+        "resultado de outra (ex.: olhar a pasta antes de saber o nome exato do "
+        "arquivo) continua UM PASSO POR VEZ: chame só ela, veja o resultado, "
+        "decida a seguinte. Quando a tarefa terminar — ou quando for "
+        "conversa/bate-papo ('oi', 'obrigado'...) — responda em texto normal, "
+        "SEM chamar ferramenta: conversar É parte do seu trabalho, não é fora "
+        "de escopo. Se pedirem algo que você NÃO faz, explique com gentileza e "
+        "sugira o que dá — nunca deixe o usuário no vácuo. Pastas pessoais do "
+        "PC: formato ~/Nome (ex.: ~/Downloads).",
         "",
         "Ao chamar uma ferramenta, escreva JUNTO, no texto da mensagem, 1-2 frases "
         "simples contando o que vai fazer e por quê — é NARRAÇÃO PRO USUÁRIO, não "

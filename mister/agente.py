@@ -1,21 +1,27 @@
 """O agente: costura MÚLTIPLOS passos num turno.
 
-O cérebro age um passo por vez: chama uma tool, VÊ o resultado, e decide o
-próximo — encadear, perguntar ao dono, ou concluir.
+O cérebro devolve um LOTE de até 4 chamadas por resposta (ações
+INDEPENDENTES podem vir juntas — ver `prompts.montar_instrucao`); quem decide
+quantas do lote de fato rodam é este módulo: cada chamada passa pelo
+despachante, NA ORDEM, e se uma precisar do dono (confirmação ou 'perguntar')
+o lote PARA nela — as anteriores já rodaram, ela espera, as seguintes não
+rodam (mas todas ainda respondem no histórico, ver `_jogada_lote`).
 
-A SEGURANÇA não passa por aqui. Cada passo continua indo pelo `executar` (o
+A SEGURANÇA não passa por aqui. Cada chamada continua indo pelo `executar` (o
 despachante), que valida os params contra o formulário e guarda a confirmação.
 O agente só costura; ele nunca decide o que é seguro.
 
 Cabrestos:
-  - SEM teto de passos. Um agente que encadeia passos DIFERENTES roda até
-    terminar; cancelar na hora é o ESC (a pele transforma em Ctrl+C). O que
-    existe é um DETECTOR DE LOOP: se o cérebro repetir a MESMA ação (intenção +
-    params) LOOP_JANELA vezes seguidas, é loop de verdade, não tarefa longa —
-    aí ele para e EXPLICA pro dono o que tentou e onde travou, em vez de girar
-    pra sempre.
+  - SEM teto de VOLTAS ao cérebro (cada volta roda um LOTE de até 4 chamadas).
+    Um agente que encadeia lotes DIFERENTES roda até terminar; cancelar na
+    hora é o ESC (a pele transforma em Ctrl+C). O que existe é um DETECTOR DE
+    LOOP: se o cérebro repetir o MESMO LOTE (a lista ordenada de
+    intenção+params de cada chamada) LOOP_JANELA vezes seguidas, é loop de
+    verdade, não tarefa longa — aí ele para e EXPLICA pro dono o que tentou e
+    onde travou, em vez de girar pra sempre.
   - 'perguntar' e 'responder' são intenções de CONTROLE, tratadas aqui — não são
-    tools e não tocam o sistema.
+    tools e não tocam o sistema. 'responder' só existe sozinho (lote de 1 — o
+    cérebro nunca mistura resposta final com chamada de ferramenta).
 
 O agente não conhece o correio: notícia de trabalho que roda em segundo plano
 chega por `recados` (uma função que quem monta o laço injeta — ver
@@ -36,8 +42,9 @@ from mister.resultado import Resultado
 # plano), pro cérebro reconhecer o padrão no histórico.
 MARCA_RECADO = "[recado do segundo plano]"
 
-# Detector de loop: repetir a MESMA ação (intenção + params) essa quantidade de
-# vezes SEGUIDAS é loop de verdade, não tarefa longa.
+# Detector de loop: repetir o MESMO LOTE (intenção + params de cada chamada
+# elegível, na ordem) essa quantidade de vezes SEGUIDAS é loop de verdade, não
+# tarefa longa.
 LOOP_JANELA = 3
 
 # Tipos das funções de IO injetadas (facilita testar sem terminal de verdade).
@@ -140,7 +147,7 @@ def conversar(
 
         try:
             with (pensando() if pensando else nullcontext()):
-                decisao = cerebro.proximo_passo(historico)
+                lote = cerebro.proximo_passo(historico)
         except ErroCerebro as e:
             # Falha de infra: avisa de verdade, não finge "não entendi". Não vira
             # "fala" do Mister no histórico — é tropeço transitório, não resposta.
@@ -148,94 +155,139 @@ def conversar(
             return historico
 
         if tracar:
-            tracar(f"[pensei: {decisao.raciocinio or '—'}]")
-            tracar(f"[passo: intenção={decisao.intencao} params={decisao.params}]")
+            tracar(f"[pensei: {lote[0].raciocinio or '—'}]")
+            for decisao in lote:
+                tracar(f"[passo: intenção={decisao.intencao} params={decisao.params}]")
 
-        # Detector de loop: 'responder'/None já encerram o turno sozinhos, não
-        # precisam desse cabresto.
-        if decisao.intencao not in (None, "responder"):
-            chave = (
-                decisao.intencao,
-                json.dumps(decisao.params, sort_keys=True, ensure_ascii=False),
-            )
-            repeticoes.append(chave)
-            repeticoes = repeticoes[-LOOP_JANELA:]
-            if len(repeticoes) == LOOP_JANELA and len(set(repeticoes)) == 1:
-                historico.append(_jogada(decisao))
-                historico.append(_resposta(decisao, "[não executei: ação repetida]"))
-                historico.append({"role": "user", "content": (
-                    f"[loop detectado: você repetiu a MESMA ação {LOOP_JANELA}x seguidas "
-                    "sem sair do lugar. PARE — não tente de novo. Em poucas frases, "
-                    "explique ao dono o que você tentou fazer, por que travou, e peça um "
-                    "direcionamento pra continuar. Responda em texto, sem chamar "
-                    "ferramenta.]"
-                )})
-                try:
-                    with (pensando() if pensando else nullcontext()):
-                        explicacao = cerebro.proximo_passo(historico)
-                except ErroCerebro:
-                    return encerrar(
-                        "Travei repetindo a mesma ação e nem consegui explicar o motivo. "
-                        "Pode me dar uma direção pra continuar?"
-                    )
-                return encerrar(
-                    explicacao.params.get("mensagem")
-                    or explicacao.raciocinio
-                    or "Travei repetindo a mesma ação — pode me dar uma direção pra continuar?"
-                )
+        primeira = lote[0]
 
         # Resposta sem intenção (raro): é o cinto pra resposta vazia/malformada
         # da API. Entrega o raciocínio, que costuma explicar, em vez de uma frase
-        # decorada.
-        if decisao.intencao is None:
+        # decorada. (Lote de 1 sempre — ver brain.proximo_passo.)
+        if primeira.intencao is None:
             return encerrar(
-                decisao.raciocinio or "Me perdi nesse passo — me pede de outro jeito?"
+                primeira.raciocinio or "Me perdi nesse passo — me pede de outro jeito?"
             )
 
-        # Controle 'responder': fim do turno, mensagem final do cérebro.
-        if decisao.intencao == "responder":
-            return encerrar(decisao.params.get("mensagem", "(sem resposta)"))
+        # Controle 'responder': fim do turno, mensagem final do cérebro. (Lote
+        # de 1 sempre — o cérebro nunca mistura resposta final com chamada.)
+        if primeira.intencao == "responder":
+            return encerrar(primeira.params.get("mensagem", "(sem resposta)"))
 
-        # Controle 'perguntar': falta info -> pergunta e devolve ao cérebro.
-        if decisao.intencao == "perguntar":
-            pergunta = decisao.params.get("pergunta", "pode detalhar?")
-            historico.append(_jogada(decisao))
-            # A fala do dono é a RESPOSTA da chamada 'perguntar' — vai no par
-            # nativo dela, não numa mensagem user solta. O `except` fecha o par
-            # mesmo se o dono cancelar (ESC) no meio: jogada sem resposta deixa
-            # o histórico inválido, e o PRÓXIMO turno é que morreria por isso.
+        # TETO DO LOTE: só as 4 primeiras chamadas rodam; o resto ainda precisa
+        # de resposta no histórico (ver o loop abaixo), só não executa.
+        elegiveis, cortadas = lote[:4], lote[4:]
+
+        # DETECTOR DE LOOP: a chave agora é o LOTE inteiro (a lista ordenada de
+        # intenção+params de cada chamada elegível) — lote idêntico repetido
+        # LOOP_JANELA vezes seguidas é loop de verdade, não tarefa longa.
+        chave = tuple(
+            (d.intencao, json.dumps(d.params, sort_keys=True, ensure_ascii=False))
+            for d in elegiveis
+        )
+        repeticoes.append(chave)
+        repeticoes = repeticoes[-LOOP_JANELA:]
+        if len(repeticoes) == LOOP_JANELA and len(set(repeticoes)) == 1:
+            historico.append(_jogada_lote(lote))
+            for d in elegiveis:
+                historico.append(_resposta(d, "[não executei: lote repetido]"))
+            for d in cortadas:
+                historico.append(_resposta(d, _MSG_CORTADA))
+            historico.append({"role": "user", "content": (
+                f"[loop detectado: você repetiu o MESMO LOTE {LOOP_JANELA}x seguidas "
+                "sem sair do lugar. PARE — não tente de novo. Em poucas frases, "
+                "explique ao dono o que você tentou fazer, por que travou, e peça um "
+                "direcionamento pra continuar. Responda em texto, sem chamar "
+                "ferramenta.]"
+            )})
             try:
-                resposta_do_dono = perguntar(f"{pergunta} ")
-            except BaseException:
-                historico.append(_resposta(decisao, "[o dono cancelou antes de responder]"))
-                raise
-            historico.append(_resposta(decisao, resposta_do_dono))
-            continue
+                with (pensando() if pensando else nullcontext()):
+                    explicacao = cerebro.proximo_passo(historico)[0]
+            except ErroCerebro:
+                return encerrar(
+                    "Travei repetindo a mesma ação e nem consegui explicar o motivo. "
+                    "Pode me dar uma direção pra continuar?"
+                )
+            return encerrar(
+                explicacao.params.get("mensagem")
+                or explicacao.raciocinio
+                or "Travei repetindo a mesma ação — pode me dar uma direção pra continuar?"
+            )
 
-        # Caso geral: é uma TOOL. Vai pelo despachante (validação + confirmação).
-        with _ocupado(atividade, "executando", decisao.intencao):
-            saida = executar(decisao)
-        if isinstance(saida, Pendente):
-            saida = _confirmar(saida, executar, perguntar, atividade)
+        # RODA O LOTE, na ordem: chamada que precisa do dono (confirmação ou
+        # 'perguntar') PARA o lote ali — as anteriores já rodaram, as seguintes
+        # não. Tudo isto vai numa ÚNICA jogada nativa no fim (ver _jogada_lote);
+        # o try/finally garante que o que já rodou fica registrado mesmo se o
+        # dono cancelar (ESC) no meio de uma pergunta/confirmação.
+        respostas: list[tuple[Decisao, str]] = []
+        try:
+            parou = False
+            for decisao in elegiveis:
+                if parou:
+                    respostas.append((decisao, _MSG_PAROU))
+                    continue
 
-        if tracar:
-            tracar(f"[resultado: ok={saida.ok}] {saida.texto()}")
+                if decisao.intencao == "perguntar":
+                    pergunta = decisao.params.get("pergunta", "pode detalhar?")
+                    # O dono pode cancelar (ESC) bem no meio: registra o
+                    # cancelamento nesta chamada antes de deixar a exceção
+                    # subir, pra jogada+resposta fechar mesmo assim.
+                    try:
+                        resposta_do_dono = perguntar(f"{pergunta} ")
+                    except BaseException:
+                        respostas.append((decisao, "[o dono cancelou antes de responder]"))
+                        raise
+                    respostas.append((decisao, resposta_do_dono))
+                    parou = True  # espera o dono: o resto do lote não roda ainda
+                    continue
 
-        # Devolve o resultado ao cérebro pra ele encadear ou concluir.
-        historico.append(_jogada(decisao))
-        historico.append(_resposta(decisao, saida.texto()))
+                # Caso geral: é uma TOOL. Vai pelo despachante (validação + confirmação).
+                with _ocupado(atividade, "executando", decisao.intencao):
+                    saida = executar(decisao)
+                if isinstance(saida, Pendente):
+                    try:
+                        saida = _confirmar(saida, executar, perguntar, atividade)
+                    except BaseException:
+                        respostas.append((decisao, "[o dono cancelou antes de responder]"))
+                        raise
+                    parou = True  # a confirmação já rodou/recusou: para aqui
+
+                if tracar:
+                    tracar(f"[resultado: ok={saida.ok}] {saida.texto()}")
+                respostas.append((decisao, saida.texto()))
+
+            for decisao in cortadas:
+                respostas.append((decisao, _MSG_CORTADA))
+        finally:
+            # Só registra o que de fato ganhou uma resposta — decisão cancelada
+            # ANTES de responder (ESC bem no meio de perguntar/confirmar) fica
+            # de fora: nunca dizemos ao histórico que algo rodou sem completar.
+            if respostas:
+                historico.append(_jogada_lote([d for d, _ in respostas]))
+                for d, texto in respostas:
+                    historico.append(_resposta(d, texto))
 
 
-def _jogada(decisao: Decisao) -> dict:
-    """A jogada do cérebro como MENSAGEM NATIVA do histórico: a narração no
-    content + a chamada de ferramenta com id. O protocolo exige o PAR — toda
-    jogada destas precisa de uma `_resposta` logo depois. Decisão sem id (dublê
+# Textos padrão de "não executei" — a chamada sem resposta invalida o
+# histórico nativo (todo tool_call exige seu par), então mesmo quem não rodou
+# precisa de uma linha aqui.
+_MSG_PAROU = "[não executei: o lote parou numa chamada anterior que precisava do dono]"
+_MSG_CORTADA = "[não executei: vieram mais de 4 chamadas nesta resposta, só as 4 primeiras contam]"
+
+
+def _jogada_lote(decisoes: list[Decisao]) -> dict:
+    """O LOTE inteiro como UMA mensagem NATIVA do histórico: a narração no
+    content (uma só, igual em todas as decisões do lote) + TODAS as chamadas
+    juntas no campo `tool_calls` — é o formato que o protocolo exige quando o
+    modelo manda mais de uma chamada na mesma resposta. Cada uma tem que
+    ganhar sua `_resposta` logo depois (ver o chamador). Decisão sem id (dublê
     de teste, repetição pós-confirmação) ganha um gerado, pro par bater."""
-    if not decisao.id_chamada:
-        decisao.id_chamada = f"chamada-{uuid.uuid4().hex[:8]}"
+    for decisao in decisoes:
+        if not decisao.id_chamada:
+            decisao.id_chamada = f"chamada-{uuid.uuid4().hex[:8]}"
     return {
         "role": "assistant",
-        "content": decisao.raciocinio or "",
+        "content": (decisoes[0].raciocinio or "") if decisoes else "",
         "tool_calls": [{
             "id": decisao.id_chamada,
             "type": "function",
@@ -243,7 +295,7 @@ def _jogada(decisao: Decisao) -> dict:
                 "name": decisao.intencao,
                 "arguments": json.dumps(decisao.params, ensure_ascii=False),
             },
-        }],
+        } for decisao in decisoes],
     }
 
 

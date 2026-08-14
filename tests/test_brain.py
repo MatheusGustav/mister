@@ -55,7 +55,7 @@ class _CerebroDeMentira(brain._CerebroBase):
         return self._mensagem
 
 
-def test_chamada_nativa_vira_decisao():
+def test_chamada_nativa_vira_lote_de_uma_decisao():
     c = _CerebroDeMentira({
         "content": "vou ver a hora",
         "tool_calls": [{
@@ -64,7 +64,9 @@ def test_chamada_nativa_vira_decisao():
             "function": {"name": "que_horas_sao", "arguments": "{}"},
         }],
     })
-    d = c.proximo_passo([{"role": "user", "content": "que horas são?"}])
+    lote = c.proximo_passo([{"role": "user", "content": "que horas são?"}])
+    assert len(lote) == 1
+    d = lote[0]
     assert d.intencao == "que_horas_sao"
     assert d.params == {}
     assert d.raciocinio == "vou ver a hora"   # o content junto é a narração
@@ -79,20 +81,22 @@ def test_argumentos_viram_params():
             "function": {"name": "enviar_para_celular", "arguments": '{"caminho": "~/a.pdf"}'},
         }],
     })
-    assert c.proximo_passo([]).params == {"caminho": "~/a.pdf"}
+    assert c.proximo_passo([])[0].params == {"caminho": "~/a.pdf"}
 
 
 def test_texto_puro_e_a_resposta_final():
     c = _CerebroDeMentira({"content": "oi! tudo certo por aqui."})
-    d = c.proximo_passo([{"role": "user", "content": "oi"}])
-    assert d.intencao == "responder"
-    assert d.params == {"mensagem": "oi! tudo certo por aqui."}
+    lote = c.proximo_passo([{"role": "user", "content": "oi"}])
+    assert len(lote) == 1
+    assert lote[0].intencao == "responder"
+    assert lote[0].params == {"mensagem": "oi! tudo certo por aqui."}
 
 
 def test_resposta_vazia_vira_none():
     # Nem chamada nem texto (raro): o cinto de sempre — None, nunca explosão.
     c = _CerebroDeMentira({"content": ""})
-    assert c.proximo_passo([{"role": "user", "content": "oi"}]).intencao is None
+    lote = c.proximo_passo([{"role": "user", "content": "oi"}])
+    assert len(lote) == 1 and lote[0].intencao is None
 
 
 def test_arguments_malformado_nao_explode():
@@ -102,7 +106,7 @@ def test_arguments_malformado_nao_explode():
         "content": "",
         "tool_calls": [{"id": "x", "function": {"name": "que_horas_sao", "arguments": '{"a": '}}],
     })
-    d = c.proximo_passo([])
+    d = c.proximo_passo([])[0]
     assert d.intencao == "que_horas_sao" and d.params == {}
 
 
@@ -111,20 +115,36 @@ def test_arguments_que_nao_e_objeto_vira_params_vazio():
         "content": "",
         "tool_calls": [{"id": "x", "function": {"name": "que_horas_sao", "arguments": "[1,2]"}}],
     })
-    assert c.proximo_passo([]).params == {}
+    assert c.proximo_passo([])[0].params == {}
 
 
-def test_so_a_primeira_chamada_vale():
-    # Um passo por vez: se o provedor mandar 2 chamadas mesmo assim, só a 1ª entra.
+def test_lote_com_ate_4_chamadas_vira_uma_decisao_cada():
+    # Ações independentes podem vir juntas na mesma resposta — até 4.
+    c = _CerebroDeMentira({
+        "content": "vou fazer as duas coisas",
+        "tool_calls": [
+            {"id": "a", "function": {"name": "que_horas_sao", "arguments": "{}"}},
+            {"id": "b", "function": {"name": "outra", "arguments": '{"x": 1}'}},
+        ],
+    })
+    lote = c.proximo_passo([])
+    assert [d.intencao for d in lote] == ["que_horas_sao", "outra"]
+    assert [d.id_chamada for d in lote] == ["a", "b"]
+    assert lote[1].params == {"x": 1}
+    # a narração é UMA só pra resposta inteira — repetida em cada decisão do lote
+    assert all(d.raciocinio == "vou fazer as duas coisas" for d in lote)
+
+
+def test_lote_com_mais_de_4_chamadas_devolve_todas():
+    # Quem CORTA em 4 é o agente (ver test_agente.py); o cérebro só traduz.
     c = _CerebroDeMentira({
         "content": "",
         "tool_calls": [
-            {"id": "a", "function": {"name": "que_horas_sao", "arguments": "{}"}},
-            {"id": "b", "function": {"name": "outra", "arguments": "{}"}},
+            {"id": str(i), "function": {"name": "que_horas_sao", "arguments": "{}"}}
+            for i in range(6)
         ],
     })
-    d = c.proximo_passo([])
-    assert d.intencao == "que_horas_sao" and d.id_chamada == "a"
+    assert len(c.proximo_passo([])) == 6
 
 
 def test_o_cerebro_recebe_as_fichas_do_registro():
@@ -141,7 +161,8 @@ def test_a_decisao_do_cerebro_serve_de_entrada_pro_despachante():
         "content": "",
         "tool_calls": [{"id": "x", "function": {"name": "que_horas_sao", "arguments": "{}"}}],
     })
-    saida = despachar(c.proximo_passo([{"role": "user", "content": "horas"}]))
+    (decisao,) = c.proximo_passo([{"role": "user", "content": "horas"}])
+    saida = despachar(decisao)
     assert saida.ok
 
 
@@ -167,13 +188,13 @@ def _api_de_mentira(monkeypatch, mensagem: dict) -> list[dict]:
     return enviados
 
 
-def test_o_pedido_leva_instrucao_tools_e_um_passo_por_vez(monkeypatch):
+def test_o_pedido_leva_instrucao_tools_e_lote_ligado(monkeypatch):
     monkeypatch.setenv("MISTER_API_KEY", "chave-de-teste")
     enviados = _api_de_mentira(monkeypatch, {"content": "oi"})
     brain.Cerebro().proximo_passo([{"role": "user", "content": "oi"}])
     pedido = enviados[0]
     assert pedido["messages"][0]["role"] == "system"
-    assert pedido["parallel_tool_calls"] is False
+    assert pedido["parallel_tool_calls"] is True  # até 4 chamadas por resposta
     assert pedido["temperature"] == 0.0      # roteamento repetível
     assert pedido["tools"]                    # tool-calling nativo, sempre
 
@@ -205,7 +226,7 @@ def test_limite_e_re_tentado(monkeypatch):
         return _Resposta(json.dumps({"choices": [{"message": {"content": "oi"}}]}).encode())
 
     monkeypatch.setattr(brain.urllib.request, "urlopen", _urlopen)
-    d = brain.Cerebro().proximo_passo([{"role": "user", "content": "oi"}])
+    d = brain.Cerebro().proximo_passo([{"role": "user", "content": "oi"}])[0]
     assert d.intencao == "responder" and len(tentativas) == 3
 
 

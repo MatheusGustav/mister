@@ -11,8 +11,11 @@ from mister.resultado import Resultado
 
 
 class _CerebroRoteirizado:
-    """Cérebro de mentira: devolve as decisões de um roteiro, em ordem. Guarda o
-    histórico que viu em cada passo (é como se confere o que o cérebro enxerga)."""
+    """Cérebro de mentira: devolve os LOTES de um roteiro, em ordem. Guarda o
+    histórico que viu em cada volta (é como se confere o que o cérebro
+    enxerga). Cada item do roteiro é uma `Decisao` solta (vira lote de 1 —
+    o jeito antigo, ainda o mais comum nos testes) ou já uma LISTA de
+    `Decisao` (um lote de verdade, pra testar o item 1 — o lote de 4)."""
 
     def __init__(self, *decisoes):
         self._roteiro = list(decisoes)
@@ -21,11 +24,11 @@ class _CerebroRoteirizado:
     def proximo_passo(self, historico):
         self.vistos.append([dict(m) for m in historico])
         if not self._roteiro:
-            return Decisao("responder", {"mensagem": "(roteiro acabou)"})
+            return [Decisao("responder", {"mensagem": "(roteiro acabou)"})]
         proxima = self._roteiro.pop(0)
         if isinstance(proxima, Exception):
             raise proxima
-        return proxima
+        return proxima if isinstance(proxima, list) else [proxima]
 
 
 def _falas():
@@ -202,6 +205,144 @@ def test_so_s_e_sim_valem_como_aval():
         assert avais == [False], f"'{resposta}' não podia valer como sim"
 
 
+# --- o lote (item 1: até 4 chamadas por resposta) -----------------------------
+
+def test_lote_de_acoes_independentes_roda_todas_em_ordem():
+    lote = [
+        Decisao("olhar_pasta_celular", {"pasta": "Download"}, id_chamada="a"),
+        Decisao("que_horas_sao", {}, id_chamada="b"),
+    ]
+    cerebro = _CerebroRoteirizado(lote, Decisao("responder", {"mensagem": "prontinho"}))
+    feitas = []
+    ditas, mostrar = _falas()
+    hist = conversar(
+        cerebro, lambda d: (feitas.append(d.intencao), Resultado(True, "ok"))[1],
+        "olha e diz a hora", perguntar=lambda p: "", mostrar=mostrar,
+    )
+    assert feitas == ["olhar_pasta_celular", "que_horas_sao"]
+    assert ditas == ["prontinho"]
+    # UMA jogada nativa com as DUAS chamadas — o protocolo exige isso quando o
+    # modelo manda mais de uma chamada na mesma resposta.
+    jogada = next(m for m in hist if m.get("tool_calls"))
+    assert [tc["id"] for tc in jogada["tool_calls"]] == ["a", "b"]
+    respostas_ids = {m["tool_call_id"] for m in hist if m.get("role") == "tool"}
+    assert respostas_ids == {"a", "b"}
+
+
+def test_lote_para_na_confirmacao_e_o_resto_nao_roda():
+    lote = [
+        Decisao("que_horas_sao", {}, id_chamada="a"),
+        Decisao("puxar_do_celular", {"nome": "a.pdf"}, id_chamada="b"),
+        Decisao("olhar_pasta_celular", {"pasta": "Download"}, id_chamada="c"),
+    ]
+    cerebro = _CerebroRoteirizado(lote, Decisao("responder", {"mensagem": "fim"}))
+    feitas = []
+
+    def _executar(d):
+        feitas.append(d.intencao)
+        if d.intencao == "puxar_do_celular" and not d.aval_do_dono:
+            return Pendente("Posso puxar?", "puxar_do_celular", {"nome": "a.pdf"})
+        return Resultado(True, "ok")
+
+    hist = conversar(
+        cerebro, _executar, "faz tudo", perguntar=lambda p: "s", mostrar=lambda m: None,
+    )
+    # a (rodou), b (pediu aval, confirmou e rodou DE NOVO) — c nunca chegou a rodar
+    assert feitas == ["que_horas_sao", "puxar_do_celular", "puxar_do_celular"]
+    respostas = {m["tool_call_id"]: m["content"] for m in hist if m.get("role") == "tool"}
+    assert "não executei" in respostas["c"]
+
+
+def test_lote_para_na_confirmacao_recusada_e_o_resto_tambem_nao_roda():
+    lote = [
+        Decisao("puxar_do_celular", {"nome": "a.pdf"}, id_chamada="a"),
+        Decisao("que_horas_sao", {}, id_chamada="b"),
+    ]
+    cerebro = _CerebroRoteirizado(lote, Decisao("responder", {"mensagem": "ok, não puxei"}))
+    feitas = []
+
+    def _executar(d):
+        feitas.append(d.intencao)
+        return Pendente("Posso puxar?", "puxar_do_celular", {"nome": "a.pdf"})
+
+    hist = conversar(
+        cerebro, _executar, "traz", perguntar=lambda p: "n", mostrar=lambda m: None,
+    )
+    assert feitas == ["puxar_do_celular"]  # a segunda nunca chega a rodar
+    respostas = {m["tool_call_id"]: m["content"] for m in hist if m.get("role") == "tool"}
+    assert "não executei" in respostas["b"]
+
+
+def test_lote_para_no_perguntar_e_o_resto_nao_roda():
+    lote = [
+        Decisao("que_horas_sao", {}, id_chamada="a"),
+        Decisao("perguntar", {"pergunta": "qual pasta?"}, id_chamada="b"),
+        Decisao("olhar_pasta_celular", {"pasta": "Download"}, id_chamada="c"),
+    ]
+    cerebro = _CerebroRoteirizado(lote, Decisao("responder", {"mensagem": "ok"}))
+    feitas = []
+    hist = conversar(
+        cerebro, lambda d: (feitas.append(d.intencao), Resultado(True, "ok"))[1],
+        "faz umas coisas", perguntar=lambda p: "Download", mostrar=lambda m: None,
+    )
+    assert feitas == ["que_horas_sao"]  # olhar_pasta_celular nunca chegou a rodar
+    respostas = {m["tool_call_id"]: m["content"] for m in hist if m.get("role") == "tool"}
+    assert respostas["b"] == "Download"
+    assert "não executei" in respostas["c"]
+
+
+def test_lote_com_mais_de_4_so_roda_as_4_primeiras():
+    lote = [Decisao("que_horas_sao", {}, id_chamada=str(i)) for i in range(6)]
+    cerebro = _CerebroRoteirizado(lote, Decisao("responder", {"mensagem": "fim"}))
+    feitas = []
+    conversar(
+        cerebro, lambda d: (feitas.append(d.intencao), Resultado(True, "ok"))[1],
+        "faz 6 coisas", perguntar=lambda p: "", mostrar=lambda m: None,
+    )
+    assert len(feitas) == 4
+
+
+def test_chamadas_cortadas_pelo_teto_tambem_ganham_resposta():
+    """Chamada sem resposta invalida o histórico nativo — mesmo a que nunca
+    rodou (cortada pelo teto de 4) precisa da sua."""
+    lote = [Decisao("que_horas_sao", {}, id_chamada=str(i)) for i in range(6)]
+    cerebro = _CerebroRoteirizado(lote, Decisao("responder", {"mensagem": "fim"}))
+    hist = conversar(
+        cerebro, lambda d: Resultado(True, "ok"),
+        "faz 6 coisas", perguntar=lambda p: "", mostrar=lambda m: None,
+    )
+    jogada = next(m for m in hist if m.get("tool_calls"))
+    assert len(jogada["tool_calls"]) == 6
+    respostas = {m["tool_call_id"]: m["content"] for m in hist if m.get("role") == "tool"}
+    assert set(respostas) == {str(i) for i in range(6)}
+    assert "mais de 4" in respostas["4"] and "mais de 4" in respostas["5"]
+
+
+def test_cancelar_no_meio_do_lote_ainda_registra_o_que_ja_rodou():
+    import pytest
+
+    lote = [
+        Decisao("que_horas_sao", {}, id_chamada="a"),
+        Decisao("perguntar", {"pergunta": "qual pasta?"}, id_chamada="b"),
+    ]
+    cerebro = _CerebroRoteirizado(lote)
+    historico: list[dict] = []
+
+    def _cancela(_):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        conversar(
+            cerebro, lambda d: Resultado(True, "10h"), "faz coisas",
+            perguntar=_cancela, mostrar=lambda m: None, historico=historico,
+        )
+    jogada = next(m for m in historico if m.get("tool_calls"))
+    assert [tc["id"] for tc in jogada["tool_calls"]] == ["a", "b"]
+    respostas = {m["tool_call_id"]: m["content"] for m in historico if m.get("role") == "tool"}
+    assert "10h" in respostas["a"]
+    assert "cancelou" in respostas["b"]
+
+
 # --- os cabrestos ------------------------------------------------------------
 
 def test_acao_repetida_para_o_laco_e_explica():
@@ -220,6 +361,48 @@ def test_acao_repetida_para_o_laco_e_explica():
     assert len(feitas) == LOOP_JANELA - 1
     assert ditas == ["travei olhando a mesma pasta, me ajuda?"]
     assert "loop detectado" in cerebro.vistos[-1][-1]["content"]
+
+
+def test_lote_identico_repetido_dispara_o_detector():
+    lote = [
+        Decisao("olhar_pasta_celular", {"pasta": "Download"}),
+        Decisao("que_horas_sao", {}),
+    ]
+    cerebro = _CerebroRoteirizado(
+        *[lote for _ in range(LOOP_JANELA)],
+        Decisao("responder", {"mensagem": "travei, me ajuda"}),
+    )
+    feitas = []
+    ditas, mostrar = _falas()
+    conversar(
+        cerebro, lambda d: (feitas.append(d.intencao), Resultado(True, "ok"))[1],
+        "repete", perguntar=lambda p: "", mostrar=mostrar,
+    )
+    # a última repetição do LOTE (as duas chamadas) não chega a executar
+    assert len(feitas) == 2 * (LOOP_JANELA - 1)
+    assert ditas == ["travei, me ajuda"]
+    assert "loop detectado" in cerebro.vistos[-1][-1]["content"]
+
+
+def test_detector_de_loop_e_pelo_lote_inteiro_nao_por_chamada_solta():
+    """Lotes DIFERENTES que compartilham uma chamada em comum não disparam o
+    detector — a chave é o LOTE inteiro, não cada intenção isolada."""
+    lote_a = [Decisao("olhar_pasta_celular", {"pasta": "Download"})]
+    lote_b = [
+        Decisao("olhar_pasta_celular", {"pasta": "Download"}),
+        Decisao("que_horas_sao", {}),
+    ]
+    cerebro = _CerebroRoteirizado(
+        lote_a, lote_b, lote_a, lote_b, Decisao("responder", {"mensagem": "fim"}),
+    )
+    feitas = []
+    ditas, mostrar = _falas()
+    conversar(
+        cerebro, lambda d: (feitas.append(d.intencao), Resultado(True, "ok"))[1],
+        "alterna", perguntar=lambda p: "", mostrar=mostrar,
+    )
+    assert feitas.count("olhar_pasta_celular") == 4  # nenhum turno foi bloqueado
+    assert ditas == ["fim"]
 
 
 def test_passos_diferentes_nao_disparam_o_detector():
