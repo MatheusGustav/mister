@@ -86,9 +86,9 @@ CORES = {
 }
 
 # O rodapé de atalhos (só texto — o comportamento mora em BINDINGS/COMANDOS).
-# Os comandos de barra aparecem por extenso: rodapé não pode inventar botão
-# que não existe (o "/comandos" antigo parecia comando e não era).
-ATALHOS = "esc interromper · /nova /conversas /exportar /sair · ctrl+a paleta · ctrl+q sair"
+# Curto de propósito (decisão do dono): o caderno do ctrl+a é quem mostra o
+# que existe — o ESC e a barra continuam funcionando, só não moram aqui.
+ATALHOS = "ctrl+a comandos · ctrl+s sair"
 
 # Os comandos — a barra (/nome) e a paleta (ctrl+a) leem ESTE dicionário:
 # comando novo entra aqui e aparece nos dois lugares. Sem /ajuda de propósito
@@ -302,6 +302,9 @@ def criar_app():
             # "cursor pro começo" dele) e a paleta nunca abre.
             Binding("ctrl+a", "paleta", "paleta", priority=True),
             Binding("escape", "interromper", "interromper"),
+            # ctrl+s é o do rodapé (decisão do dono); o ctrl+q fica de
+            # reserva muda — custa nada e salva quem tem o dedo viciado.
+            Binding("ctrl+s", "quit", "sair", priority=True),
             Binding("ctrl+q", "quit", "sair"),
         ]
 
