@@ -61,7 +61,7 @@ import os
 import queue
 import subprocess
 import threading
-from contextlib import contextmanager
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -144,10 +144,6 @@ Screen {
     border-left: thick $barra;
     padding: 0 1;
     height: auto;
-}
-#estado {
-    height: 1;
-    color: $apagado;
 }
 #entrada {
     background: $painel;
@@ -316,9 +312,9 @@ def criar_app():
             yield VerticalScroll(id="conversa")
             with Vertical(id="caixa"):
                 # A linha do modo/modelo fica EM CIMA da caixa (decisão do
-                # dono, 14/08/2026), com o "pensando…" ao lado dela.
+                # dono, 14/08/2026). Sem linha de "pensando…" — excluída a
+                # pedido dele; o andamento aparece só pelo bastidor.
                 yield Static("", id="linha_modo")
-                yield Static("", id="estado")
                 yield Input(placeholder="fale com o Mister…", id="entrada")
             with Horizontal(id="rodape"):
                 yield Static(ATALHOS, id="atalhos")
@@ -446,11 +442,6 @@ def criar_app():
         def medir(self, texto: str) -> None:
             self.query_one("#medidor", Static).update(texto)
 
-        def estado(self, texto: str) -> None:
-            self.query_one("#estado", Static).update(
-                Text(texto, style=CORES["apagado"])
-            )
-
         def modo(self, texto: str) -> None:
             self.query_one("#linha_modo", Static).update(
                 Text(texto, style=CORES["apagado"])
@@ -508,20 +499,13 @@ class PeleTui:
 
     # --- "estou ocupado" ------------------------------------------------------
 
-    @contextmanager
-    def _ocupado(self, rotulo: str):
-        self.app.call_from_thread(self.app.estado, rotulo)
-        try:
-            yield
-        finally:
-            self.app.call_from_thread(self.app.estado, "")
-
+    # O contrato pede as duas, mas a TUI não mostra "pensando…" (excluído a
+    # pedido do dono, 14/08/2026) — viram no-op de propósito.
     def pensando(self):
-        return self._ocupado("pensando…")
+        return nullcontext()
 
     def atividade(self, tipo: str, detalhe: str = ""):
-        rotulo = {"pensando": "pensando…", "executando": "fazendo"}.get(tipo, tipo)
-        return self._ocupado(f"{rotulo} {detalhe}".strip())
+        return nullcontext()
 
 
 def _laco(app) -> None:
