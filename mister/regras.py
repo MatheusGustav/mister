@@ -8,9 +8,9 @@ pedido vai ser outro, e aí é tarde. Fato pode esperar o assunto puxar; regra
 não pode. Por isso o arquivo vai INTEIRO no prompt, sem busca nenhuma.
 
 O arquivo paga pedágio de contexto em TODA mensagem — ele é pequeno DE
-PROPÓSITO, e é por isso que quem escreve nele é o DONO: o Mister sugere (a
-tool guardar_regra), o `confirmacao.py` para e pergunta, e só o "s" do dono
-grava. Fato solto, spec de aparelho, macete — isso NÃO é regra, vai pro grafo.
+PROPÓSITO. Quem escreve é a tool `guardar_regra`, direto (escrever regra é
+reversível — não pede confirmação, ver `confirmacao.pergunta_de_confirmacao`).
+Fato solto, spec de aparelho, macete — isso NÃO é regra, vai pro grafo.
 
 Best-effort como toda memória: arquivo sumido/ilegível = sem regras, nunca um
 Mister que não sobe.
@@ -46,9 +46,8 @@ def adicionar(regra: str) -> str:
     """Grava UMA regra nova no fim do arquivo (criando-o na primeira) e devolve
     o texto gravado. Regra é uma LINHA: quebra interna vira espaço.
 
-    Quem chama já passou pela confirmação — aqui só se escreve. Levanta OSError
-    se o disco recusar: gravar regra não é best-effort, é a ação pedida — falha
-    tem que aparecer, não sumir calada."""
+    Levanta OSError se o disco recusar: gravar regra não é best-effort, é a
+    ação pedida — falha tem que aparecer, não sumir calada."""
     linha = " ".join(regra.split())
     caminho = Path(_caminho())
     caminho.parent.mkdir(parents=True, exist_ok=True)

@@ -1,15 +1,15 @@
-"""O MISTER.md: o arquivo inteiro no prompt em toda mensagem, e a regra nova
-só entrando com o "s" do dono.
+"""O MISTER.md: o arquivo inteiro no prompt em toda mensagem, e a regra
+gravada na hora, sem confirmar (escrever regra é reversível — não bate no
+critério de irreversibilidade, ver `confirmacao.pergunta_de_confirmacao`).
 
 O que está sob teste é a PROMESSA da divisão da memória: regra não espera o
 assunto puxar — ela vale sempre, inclusive na fala SEGUINTE à gravação, sem
-reiniciar nada. E quem grava é o dono, nunca o cérebro sozinho.
+reiniciar nada.
 """
 import os
 from pathlib import Path
 
 from mister import brain, prompts, regras
-from mister.confirmacao import Pendente
 from mister.dispatcher import despachar
 
 import mister.tools.regras  # noqa: F401  (cadastra a tool no registro)
@@ -83,34 +83,15 @@ def test_regra_gravada_no_meio_da_conversa_vale_na_fala_seguinte():
     assert "responder sempre em português" in cerebro.sistemas[1]
 
 
-# --- a tool (o "s" do dono no meio do caminho) --------------------------------
+# --- a tool (grava direto, sem pedir aval) ------------------------------------
 
-def test_sem_aval_a_regra_nao_entra():
+def test_a_regra_entra_direto_sem_perguntar():
     saida = despachar(_Decisao("guardar_regra", {"regra": "nunca usar emoji"}))
-    assert isinstance(saida, Pendente)
-    assert "nunca usar emoji" in saida.pergunta
-    assert regras.ler() == ""  # nada foi gravado antes do "s"
-
-
-def test_com_o_s_do_dono_a_regra_entra():
-    pendente = despachar(_Decisao("guardar_regra", {"regra": "nunca usar emoji"}))
-    saida = despachar(_Decisao(
-        pendente.intencao, pendente.params,
-        aval_do_dono=True, carimbo=pendente.carimbo,
-    ))
     assert saida.ok
     assert "- nunca usar emoji" in regras.ler()
 
 
-def test_regra_vazia_e_recusada_sem_perguntar_nada():
+def test_regra_vazia_e_recusada():
     saida = despachar(_Decisao("guardar_regra", {"regra": "   "}))
-    assert not isinstance(saida, Pendente)
     assert not saida.ok
-
-
-def test_cerebro_nao_preenche_o_confirmado_sozinho():
-    """A tranca de sempre: 'confirmado' vindo do modelo (sem aval) é descartado
-    pelo despachante — vira Pendente, não gravação."""
-    saida = despachar(_Decisao("guardar_regra", {"regra": "x", "confirmado": True}))
-    assert isinstance(saida, Pendente)
     assert regras.ler() == ""

@@ -5,7 +5,13 @@ despachante faz com ele está no test_dispatcher; aqui é a peça sozinha.
 """
 import os
 
-from mister.confirmacao import Pendente, PrecisaConfirmar, carimbar
+from mister.confirmacao import (
+    Pendente,
+    PrecisaConfirmar,
+    _comando_e_destrutivo,
+    carimbar,
+    pergunta_de_confirmacao,
+)
 
 
 def test_precisa_confirmar_carrega_a_pergunta():
@@ -87,3 +93,50 @@ def test_carimbo_e_estavel_entre_processos(tmp_path, monkeypatch):
     assert len(esperado) == 64 and int(esperado, 16) >= 0  # sha256 em hex
     assert carimbar("acao", dict(material)) == esperado
     assert os.getcwd() == str(tmp_path)
+
+
+# --- o critério de irreversibilidade ------------------------------------------
+# apagar_nota e rodar_comando ainda não existem como tool (chegam nos itens 5 e
+# 2) — aqui testa-se a REGRA pura, que o despachante vai consultar quando eles
+# existirem.
+
+def test_apagar_nota_sempre_pergunta():
+    pergunta = pergunta_de_confirmacao("apagar_nota", {"nome": "bolo-de-cenoura"})
+    assert pergunta is not None and "bolo-de-cenoura" in pergunta
+
+
+def test_o_resto_das_tools_atuais_nao_pergunta():
+    assert pergunta_de_confirmacao("puxar_do_celular", {"nome": "a.pdf"}) is None
+    assert pergunta_de_confirmacao("guardar_regra", {"regra": "x"}) is None
+    assert pergunta_de_confirmacao("enviar_para_celular", {"caminho": "x"}) is None
+
+
+def test_comando_destrutivo_pergunta_e_o_resto_nao():
+    for comando in ("rm -rf ~/notas", "shred arquivo", "dd if=/dev/zero of=/dev/sda",
+                     "mkfs.ext4 /dev/sdb1", "truncate -s 0 log.txt",
+                     "git reset --hard HEAD~3", "git clean -fd", "sudo rm -rf /tmp/x"):
+        assert _comando_e_destrutivo(comando), comando
+
+    for comando in ("ls -la", "cat notas.md", "git status", "git log", "mkdir pasta"):
+        assert not _comando_e_destrutivo(comando), comando
+
+
+def test_comando_destrutivo_no_meio_de_uma_cadeia_tambem_conta():
+    assert _comando_e_destrutivo("cd /tmp && rm -rf lixo")
+    assert _comando_e_destrutivo("ls; shred segredo.txt")
+
+
+def test_redirecionar_por_cima_de_arquivo_que_existe_conta(tmp_path):
+    alvo = tmp_path / "config.json"
+    alvo.write_text("{}", encoding="utf-8")
+    assert _comando_e_destrutivo(f"echo oi > {alvo}")
+
+
+def test_redirecionar_pra_arquivo_novo_nao_conta(tmp_path):
+    alvo = tmp_path / "novo.txt"
+    assert not _comando_e_destrutivo(f"echo oi > {alvo}")
+
+
+def test_rodar_comando_pergunta_so_quando_o_comando_e_destrutivo():
+    assert pergunta_de_confirmacao("rodar_comando", {"comando": "rm -rf /"}) is not None
+    assert pergunta_de_confirmacao("rodar_comando", {"comando": "ls -la"}) is None
