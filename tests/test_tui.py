@@ -35,6 +35,45 @@ def test_pele_tui_tem_o_mesmo_contrato_da_pele_simples():
     assert not faltando, f"a PeleTui não tem: {sorted(faltando)}"
 
 
+def test_blocos_da_conversa_filtra_o_que_nao_e_conversa():
+    """Só fala do dono e fala do Mister viram bloco — mensagem de sistema
+    (user com '['), jogada de ferramenta e resposta de tool ficam de fora."""
+    historico = [
+        {"role": "user", "content": "oi"},
+        {"role": "user", "content": "[recado do segundo plano] terminou"},
+        {"role": "assistant", "content": "vou olhar", "tool_calls": [{"id": "x"}]},
+        {"role": "tool", "tool_call_id": "x", "content": "resultado"},
+        {"role": "assistant", "content": "olá!"},
+    ]
+    assert tui.blocos_da_conversa(historico) == [("dono", "oi"), ("mister", "olá!")]
+
+
+def test_exportar_grava_md_legivel(tmp_path):
+    historico = [
+        {"role": "user", "content": "oi"},
+        {"role": "assistant", "content": "olá!"},
+    ]
+    caminho = tui.exportar(historico, pasta=str(tmp_path))
+    corpo = caminho.read_text(encoding="utf-8")
+    assert caminho.suffix == ".md"
+    assert "**Dono:** oi" in corpo
+    assert "**Mister:** olá!" in corpo
+
+
+def test_interpretar_barra():
+    assert tui.interpretar_barra("oi, tudo bem?") is None
+    assert tui.interpretar_barra("!ls") is None
+    assert tui.interpretar_barra("/nova") == "nova"
+    assert tui.interpretar_barra("/naoexiste") == "naoexiste"  # quem avisa é a tela
+    assert tui.interpretar_barra("/") == ""
+
+
+def test_sem_ajuda_nos_comandos():
+    """Decisão do dono (13/08/2026): /ajuda não existe — a paleta cumpre o
+    papel. O teste segura a decisão contra regressão."""
+    assert "ajuda" not in tui.COMANDOS
+
+
 def test_importar_tui_nao_exige_textual(monkeypatch):
     """O import do módulo não pode puxar o textual (extra opcional): quem
     importa `mister.tui` sem o extra só quebra — com receita — no `main`."""
