@@ -70,15 +70,17 @@ from rich.text import Text
 from mister import conversa
 
 # --- AS CORES (mexa à vontade) ------------------------------------------------
-# A textura do OpenCode: fundo quase preto, painéis um tom acima, texto claro,
-# bastidor apagado. O acento é o azul do Mister (o mesmo da pele simples).
+# A paleta é o PANTERO, o gato do dono (decisão de 13/08/2026): preto, marrom
+# café e o preto levemente brilhoso do pelo. O preto puro é o chão; o brilhoso
+# (um preto amornado, um tom acima) é os painéis; o café é o acento — a barra
+# dos blocos e o título. Texto e bastidor acompanham quentes, pra nada destoar.
 CORES = {
-    "fundo": "#0d0d0d",      # o chão da tela
-    "painel": "#161616",     # cabeçalho, bloco do dono, caixa de digitar
-    "texto": "#d6d6d6",      # texto normal
-    "apagado": "#6f7a85",    # bastidor, medidor, atalhos, linha do modelo
-    "acento": "#4cc3e6",     # a barra dos blocos, o título
-    "ambar": "#d9b44a",      # pergunta/confirmação
+    "fundo": "#0b0a09",      # o chão da tela — o preto do pelo
+    "painel": "#191512",     # cabeçalho, bloco do dono, caixa — o preto brilhoso
+    "texto": "#ddd5cc",      # texto normal — um claro quente, pra casar
+    "apagado": "#80756a",    # bastidor, medidor, atalhos, linha do modelo
+    "acento": "#a9744a",     # a barra dos blocos, o título — o marrom café
+    "ambar": "#d9a45a",      # pergunta/confirmação — âmbar puxado pro café
     "vermelho": "#e0555f",   # erro
 }
 
