@@ -15,8 +15,13 @@ regras do dono), o grafo da memória (memoria/) e o índice dela. O correio
 guarda o dele em ~/.config/ekodide/, que é do
 EKODIDE, não daqui — e nenhum teste chega perto disso (o ekodide é dublado,
 ver test_correio.py).
+
+A trava de ler-antes (`leituras.py`) mora em RAM, fora do env — cada teste
+zera o registro pra um não vazar leitura pro outro.
 """
 import pytest
+
+from mister import leituras
 
 
 @pytest.fixture(autouse=True)
@@ -29,3 +34,4 @@ def mister_isolado(monkeypatch, tmp_path):
     # Porta morta de propósito: teste que esquecer de dublar o embutir acha
     # "conexão recusada" na hora, nunca o Ollama REAL da máquina.
     monkeypatch.setenv("MISTER_OLLAMA", "http://127.0.0.1:9")
+    leituras.esquecer_tudo()

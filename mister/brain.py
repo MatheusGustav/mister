@@ -11,13 +11,14 @@ sem tocar em rede.
 
 A conversa usa o TOOL-CALLING NATIVO da API: as ferramentas vão como fichas
 (`tools`, schema saído do formulário Pydantic — ver `prompts.montar_tools`) e o
-modelo responde com uma chamada nativa ou com texto puro (a resposta final). Não
-existe protocolo JSON caseiro. **Consequência viva: o modelo escolhido precisa
-suportar tools** — se não suportar, a API recusa e vira `ErroCerebro`.
+modelo responde com um LOTE de até 4 chamadas nativas (`parallel_tool_calls`
+ligado) ou com texto puro (a resposta final). Não existe protocolo JSON
+caseiro. **Consequência viva: o modelo escolhido precisa suportar tools** — se
+não suportar, a API recusa e vira `ErroCerebro`.
 
 A correção dos parâmetros NÃO é conferida aqui: quem valida é o DESPACHANTE,
-contra o formulário da tool. O cérebro só escolhe a chamada.
-"""
+contra o formulário da tool, uma chamada do lote por vez. O cérebro só traduz
+a resposta; quem decide quantas do lote rodam é o agente (`agente.py`)."""
 from __future__ import annotations
 
 import json
@@ -114,10 +115,13 @@ class _CerebroBase:
     def _chamar(self, mensagens: list[dict], tools: list[dict]) -> dict:
         raise NotImplementedError
 
-    def proximo_passo(self, historico: list[dict]) -> Decisao:
-        """Decide o PRÓXIMO passo dado o histórico da conversa (lista de
-        mensagens no formato OpenAI). É a peça que sustenta o agente multi-step;
-        cada passo continua passando pela validação do despachante.
+    def proximo_passo(self, historico: list[dict]) -> list[Decisao]:
+        """Decide o(s) PRÓXIMO(s) passo(s) dado o histórico da conversa (lista
+        de mensagens no formato OpenAI): um LOTE de 1 a N `Decisao`, na ordem
+        que o modelo mandou. É a peça que sustenta o agente multi-step; cada
+        chamada do lote continua passando pela validação do despachante — só o
+        AGENTE decide quantas do lote de fato rodam (teto de 4, e uma
+        confirmação/pergunta no meio para o resto).
 
         A instrução do sistema é REMONTADA aqui, a cada mensagem — é o que faz
         o MISTER.md (as regras do dono) valer na fala seguinte à gravação, sem
@@ -127,10 +131,11 @@ class _CerebroBase:
         (assunto que passou sai do contexto sozinho). O transporte só envia o
         que receber.
 
-        A tradução da resposta nativa: chamada de ferramenta vira a intenção (o
-        `content` que vem junto é a narração); texto puro SEM chamada é a
-        resposta final ('responder'); nada dos dois (raro) vira None — o cinto
-        pra resposta vazia."""
+        A tradução da resposta nativa: cada chamada de ferramenta vira uma
+        `Decisao` do lote (o `content` que vem junto é a narração, repetida em
+        todas — é UMA só por resposta do modelo); texto puro SEM chamada é a
+        resposta final ('responder', lote de 1); nada dos dois (raro) vira
+        None (lote de 1) — o cinto pra resposta vazia."""
         conteudo = montar_instrucao()
         consulta = _consulta_do_dono(historico)
         bloco = montar_memoria(consulta) if consulta else ""
@@ -142,31 +147,31 @@ class _CerebroBase:
         chamadas = mensagem.get("tool_calls") or []
         narracao = str(mensagem.get("content") or "").strip()
         if chamadas:
-            # UM passo por vez: só a 1ª chamada vale (pedimos parallel_tool_calls
-            # False; se o provedor mandar extras mesmo assim, elas nem entram no
-            # histórico — o agente só registra a jogada que ele de fato responde).
-            funcao = chamadas[0].get("function") or {}
-            try:
-                params = json.loads(funcao.get("arguments") or "{}")
-            except ValueError:
-                params = {}
-            return Decisao(
-                intencao=funcao.get("name"),
-                params=params if isinstance(params, dict) else {},
-                texto_original=ultimo,
-                raciocinio=narracao,
-                id_chamada=str(chamadas[0].get("id") or ""),
-            )
+            lote = []
+            for chamada in chamadas:
+                funcao = chamada.get("function") or {}
+                try:
+                    params = json.loads(funcao.get("arguments") or "{}")
+                except ValueError:
+                    params = {}
+                lote.append(Decisao(
+                    intencao=funcao.get("name"),
+                    params=params if isinstance(params, dict) else {},
+                    texto_original=ultimo,
+                    raciocinio=narracao,
+                    id_chamada=str(chamada.get("id") or ""),
+                ))
+            return lote
         if narracao:
             # Texto puro, sem chamada: é a RESPOSTA FINAL — o jeito nativo de
             # 'responder' (a intenção segue existindo pro agente, não pra API).
-            return Decisao("responder", {"mensagem": narracao}, texto_original=ultimo)
-        return Decisao(None, {}, texto_original=ultimo)
+            return [Decisao("responder", {"mensagem": narracao}, texto_original=ultimo)]
+        return [Decisao(None, {}, texto_original=ultimo)]
 
 
 class Cerebro(_CerebroBase):
-    """Cérebro via API (OpenRouter e compatíveis): pergunta e devolve uma
-    `Decisao` validável."""
+    """Cérebro via API (OpenRouter e compatíveis): pergunta e devolve um LOTE
+    de `Decisao` validáveis (1 a N, ver `proximo_passo`)."""
 
     def __init__(self, chave: str | None = None):
         self._chave = chave or os.environ.get(API_CHAVE_ENV)
@@ -199,9 +204,10 @@ class Cerebro(_CerebroBase):
             # curto cortaria a resposta no meio.
             "max_tokens": 9000,
             "tools": tools,
-            # Um passo por vez: pede UMA chamada por resposta. Nem todo provedor
-            # honra — o proximo_passo pega só a 1ª de qualquer jeito.
-            "parallel_tool_calls": False,
+            # Lote de até 4: ações INDEPENDENTES podem vir juntas na mesma
+            # resposta (ver prompts.montar_instrucao). proximo_passo devolve
+            # todas as chamadas; quem corta em 4 e decide a ordem é o agente.
+            "parallel_tool_calls": True,
         }
         corpo = json.dumps(pedido).encode("utf-8")
 

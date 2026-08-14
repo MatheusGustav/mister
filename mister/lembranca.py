@@ -21,12 +21,15 @@ prefixos de tarefa do embeddinggemma): consulta certa pontua 0.41+, a melhor
 errada 0.26, fora-de-assunto fica abaixo de 0.20. A CAMINHADA aceita um pouco
 menos que a entrada porque o link é um fiador — o grafo já diz que as duas
 notas andam juntas; o limiar só confere se o assunto ainda é este.
+
+Toda nota que chega aqui até o cérebro conta como LIDA (ver `leituras.py`): se
+ele mandar corrigi-la na mesma conversa, a trava de ler-antes já deixa passar.
 """
 from __future__ import annotations
 
 import re
 
-from mister import indice, memoria
+from mister import indice, leituras, memoria
 
 LIMIAR_ENTRADA = 0.35
 LIMIAR_CAMINHADA = 0.30
@@ -50,10 +53,12 @@ def lembrar(texto: str) -> list[tuple[str, str]]:
     notas: list[tuple[str, str]] = []
     while fila:
         nome = fila.pop(0)
+        caminho = memoria.caminho_da(nome)
         try:
-            corpo = memoria.caminho_da(nome).read_text(encoding="utf-8").strip()
+            corpo = caminho.read_text(encoding="utf-8").strip()
         except OSError:
             continue  # apontada mas sumida do disco: a caminhada segue sem ela
+        leituras.marcar(caminho)  # a trava de ler-antes conta isto como leitura
         notas.append((nome, corpo))
         for link in _RE_LINK.findall(corpo):
             alvo = memoria.slug(link)

@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from mister.confirmacao import CAMPOS_INTERNOS, Pendente, PrecisaConfirmar, carimbar
+from mister.confirmacao import (
+    CAMPOS_INTERNOS,
+    Pendente,
+    PrecisaConfirmar,
+    carimbar,
+    pergunta_de_confirmacao,
+)
 from mister.registry import REGISTRO
 from mister.resultado import Resultado
 
@@ -60,14 +66,22 @@ def despachar(decisao: "Decisao") -> Resultado | Pendente:
     except ValidationError as erro:
         return Resultado(False, f"Parâmetros inválidos para '{decisao.intencao}':\n{erro}")
 
-    # EXECUTA: só chega aqui se o formulário bateu.
+    # A CONFIRMAÇÃO É DO DESPACHANTE: olha intenção+params ANTES de executar —
+    # critério é irreversibilidade, não escrita (ver confirmacao.pergunta_de_
+    # confirmacao). Só entra em jogo sem aval do dono ainda; com aval, o carimbo
+    # acima já garantiu que é a MESMA ação que ele aprovou.
     try:
+        if not decisao.aval_do_dono:
+            pergunta = pergunta_de_confirmacao(decisao.intencao, params)
+            if pergunta:
+                raise PrecisaConfirmar(pergunta)
+        # EXECUTA: só chega aqui se o formulário bateu e não pediu aval.
         return spec.handler(formulario_preenchido)
     except PrecisaConfirmar as pedido:
-        # A tool não vai agir sem aval. Devolve a ação "engatilhada", já marcada
-        # como confirmada, para o loop repetir se o usuário topar.
-        # Os params do Pendente saem dos LIMPOS (pós-tranca), não dos crus do
-        # modelo — o que o dono aprova é exatamente o que vai rodar.
+        # Devolve a ação "engatilhada", já marcada como confirmada, para o loop
+        # repetir se o usuário topar. Os params do Pendente saem dos LIMPOS
+        # (pós-tranca), não dos crus do modelo — o que o dono aprova é
+        # exatamente o que vai rodar.
         return Pendente(
             pergunta=pedido.pergunta,
             intencao=decisao.intencao,

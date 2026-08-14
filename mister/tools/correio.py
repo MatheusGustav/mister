@@ -25,7 +25,6 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from mister import envios
-from mister.confirmacao import PrecisaConfirmar
 from mister.registry import tool
 from mister.resultado import Resultado
 
@@ -170,7 +169,6 @@ class OlharPastaCelularParams(BaseModel):
 class PuxarDoCelularParams(BaseModel):
     nome: str
     pasta: str = ""
-    confirmado: bool = False  # INTERNO: escondido do cérebro (CAMPOS_INTERNOS)
 
 
 class OlharNoCelularParams(BaseModel):
@@ -285,10 +283,6 @@ def puxar_do_celular(params: PuxarDoCelularParams) -> Resultado:
     if not _disponivel():
         return _sem_ekodide()
     alvo = _caminho_remoto(params.pasta, params.nome)
-    # PUXAR GRAVA ARQUIVO NO PC — e o que grava, o dono confirma. (Olhar é
-    # outra coisa: acontece na RAM e não pede nada.)
-    if not params.confirmado:
-        raise PrecisaConfirmar(f"Posso puxar '{alvo}' do celular pro PC?")
     try:
         url, segredo = _linha_do_celular()
     except ekodide_config.ErroConfig as erro:

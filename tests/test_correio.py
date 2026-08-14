@@ -2,8 +2,8 @@
 
 Os testes do transporte (lacre, cofre, pedaços, retomada) não são daqui: moram
 no repo do ekodide e rodam lá, junto com o CI do Android. Aqui se testa o que é
-do Mister: recusar com jeito quando o ekodide falta, traduzir o resultado neutro
-dele pra fala, e não deixar o "puxar" gravar nada sem o dono confirmar.
+do Mister: recusar com jeito quando o ekodide falta, e traduzir o resultado
+neutro dele pra fala.
 """
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +11,6 @@ from types import SimpleNamespace
 import pytest
 
 from mister import envios
-from mister.confirmacao import PrecisaConfirmar
 from mister.dispatcher import despachar
 from mister.resultado import Resultado
 from mister.tools import correio
@@ -261,20 +260,11 @@ def test_a_pasta_e_visivel_pro_cerebro():
     assert ficha["function"]["parameters"]["required"] == []
 
 
-# --- puxar: grava no disco, então CONFIRMA -----------------------------------
+# --- puxar: grava no disco, mas não apaga nada — não confirma ---------------
 
-def test_puxar_pede_confirmacao_antes_de_gravar(ekodide_dublado):
+def test_puxar_baixa_direto_sem_confirmar(ekodide_dublado):
     saida = despachar(_decisao("puxar_do_celular", {"nome": "a.pdf", "pasta": "Download"}))
-    assert not isinstance(saida, Resultado)          # é um Pendente
-    assert "Download/a.pdf" in saida.pergunta
-    assert ekodide_dublado.chamadas["puxar"] == []   # nada foi baixado ainda
-
-
-def test_puxar_com_aval_do_dono_baixa(ekodide_dublado):
-    pendente = despachar(_decisao("puxar_do_celular", {"nome": "a.pdf", "pasta": "Download"}))
-    saida = despachar(_decisao(
-        pendente.intencao, pendente.params, aval_do_dono=True, carimbo=pendente.carimbo
-    ))
+    assert isinstance(saida, Resultado)          # não é Pendente: não pede aval
     assert saida.ok and "Puxei 'Download/a.pdf'" in saida.mensagem
     nome, _url, _segredo, base = ekodide_dublado.chamadas["puxar"][0]
     assert nome == "Download/a.pdf"
@@ -282,35 +272,15 @@ def test_puxar_com_aval_do_dono_baixa(ekodide_dublado):
     assert base == Path("/tmp/recebidos-de-mentira")
 
 
-def test_o_cerebro_nao_consegue_pular_a_confirmacao(ekodide_dublado):
-    """O furo clássico: o modelo manda confirmado=True sozinho. O despachante
-    descarta o campo interno e a tool volta a pedir o aval."""
-    saida = despachar(_decisao("puxar_do_celular", {"nome": "a.pdf", "confirmado": True}))
-    assert not isinstance(saida, Resultado)
-    assert ekodide_dublado.chamadas["puxar"] == []
-
-
-def test_confirmado_fica_escondido_do_cerebro():
-    from mister.prompts import montar_tools
-
-    ficha = next(
-        f for f in montar_tools() if f["function"]["name"] == "puxar_do_celular"
-    )
-    assert "confirmado" not in ficha["function"]["parameters"]["properties"]
-
-
 def test_puxar_que_falha_diz_o_motivo(ekodide_dublado):
     ekodide_dublado.resposta_puxar = (False, "'a.pdf' não está disponível pra puxar")
-    pendente = despachar(_decisao("puxar_do_celular", {"nome": "a.pdf"}))
-    saida = despachar(_decisao(
-        pendente.intencao, pendente.params, aval_do_dono=True, carimbo=pendente.carimbo
-    ))
+    saida = despachar(_decisao("puxar_do_celular", {"nome": "a.pdf"}))
     assert saida.ok is False
     assert "não está disponível" in saida.sugestao
     assert "olhar_pasta_celular" in saida.sugestao
 
 
-def test_puxar_sem_ekodide_nem_chega_a_pedir_confirmacao(monkeypatch):
+def test_puxar_sem_ekodide_recusa_com_receita(monkeypatch):
     monkeypatch.setattr(correio, "ekodide", None)
     saida = despachar(_decisao("puxar_do_celular", {"nome": "a.pdf"}))
     assert isinstance(saida, Resultado) and saida.ok is False
@@ -402,20 +372,19 @@ def test_o_mvp_tem_as_cinco_tools_do_celular():
     assert esperadas <= set(REGISTRO)
 
 
-def test_so_o_puxar_pede_confirmacao(ekodide_dublado):
-    """A regra que fica: olhar ≠ puxar. Quem GRAVA no PC confirma; quem só
-    olha (na RAM) não."""
+def test_nenhuma_das_cinco_pede_confirmacao(ekodide_dublado):
+    """Puxar baixa mas não apaga nada — não é irreversível, então nenhuma das
+    cinco tools do celular pede aval (ver confirmacao.pergunta_de_confirmacao)."""
     ekodide_dublado.resposta_listar = [{"nome": "nota.txt", "tamanho": 8}]
     ekodide_dublado.resposta_espiar = (True, b"conteudo", 8)
     sem_aval = {
         "olhar_pasta_celular": {},
         "olhar_no_celular": {"nome": "nota.txt"},
         "andamento_envios": {},
+        "puxar_do_celular": {"nome": "nota.txt"},
     }
     for nome, params in sem_aval.items():
         assert isinstance(despachar(_decisao(nome, params)), Resultado), nome
-    pendente = despachar(_decisao("puxar_do_celular", {"nome": "nota.txt"}))
-    assert not isinstance(pendente, Resultado)
 
 
 # --- o endereço do celular ---------------------------------------------------
@@ -461,8 +430,3 @@ def test_caminho_remoto_junta_pasta_e_nome():
     assert correio._caminho_remoto("/Download/", "a.pdf") == "Download/a.pdf"
 
 
-def test_a_tool_nao_engole_precisa_confirmar_por_engano(ekodide_dublado):
-    """Cinto: se um dia alguém puser um try/except largo na tool, este teste
-    denuncia — o PrecisaConfirmar tem que chegar ao despachante."""
-    with pytest.raises(PrecisaConfirmar):
-        correio.puxar_do_celular(correio.PuxarDoCelularParams(nome="a.pdf"))
