@@ -31,6 +31,8 @@ def mister_isolado(monkeypatch, tmp_path):
     monkeypatch.setenv("MISTER_REGRAS", str(tmp_path / "MISTER.md"))
     monkeypatch.setenv("MISTER_MEMORIA", str(tmp_path / "memoria"))
     monkeypatch.setenv("MISTER_INDICE", str(tmp_path / "indice.json"))
+    monkeypatch.setenv("MISTER_INTERRUPTORES", str(tmp_path / "interruptores.json"))
+    monkeypatch.setenv("MISTER_EXPORTADAS", str(tmp_path / "exportadas"))
 
     def _sem_dublagem(textos):
         raise indice.IndiceIndisponivel("o teste não dublou indice.embutir")

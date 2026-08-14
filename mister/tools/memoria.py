@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from mister import envios, leituras, memoria
+from mister import envios, interruptores, leituras, memoria
 from mister.registry import tool
 from mister.resultado import Resultado
 
@@ -58,6 +58,12 @@ def _anotar(titulo: str, conteudo: str) -> str:
     "('nunca faça X') — regra vai no guardar_regra, que passa pelo dono.",
 )
 def anotar_memoria(params: AnotarMemoriaParams) -> Resultado:
+    if not interruptores.ligado("anotar"):
+        return Resultado(
+            False,
+            "O anotar está DESLIGADO (interruptor do dono). Siga a conversa sem "
+            "anotar — e se o fato valia guardar, avise o dono em uma frase.",
+        )
     titulo = params.titulo.strip()
     conteudo = params.conteudo.strip()
     if not memoria.slug(titulo):

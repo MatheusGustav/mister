@@ -45,6 +45,21 @@ def foi_lido(caminho: Path) -> bool:
     return _lidos.get(str(Path(caminho).resolve())) == marca_atual
 
 
+def instantaneo() -> dict[str, str]:
+    """Uma CÓPIA do registro, par com `restaurar`: o revisar tira uma antes da
+    passada e devolve depois — as leituras da revisão não valem como leitura
+    da conversa."""
+    return dict(_lidos)
+
+
+def restaurar(copia: dict[str, str]) -> None:
+    """Volta o registro pro estado de uma cópia do `instantaneo`. Marca feita
+    por outro caminho DEPOIS da cópia se perde — falha fechada: quem perdeu a
+    marca só precisa ler de novo."""
+    _lidos.clear()
+    _lidos.update(copia)
+
+
 def esquecer_tudo() -> None:
     """Zera o registro — só pra isolamento de teste (ver conftest.py)."""
     _lidos.clear()
