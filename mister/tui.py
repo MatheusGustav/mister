@@ -79,7 +79,7 @@ CORES = {
     "painel": "#191512",     # cabeçalho, bloco do dono, caixa — o preto brilhoso
     "texto": "#ddd5cc",      # texto normal — um claro quente, pra casar
     "apagado": "#80756a",    # bastidor, medidor, atalhos, linha do modelo
-    "acento": "#cd9155",     # a barra dos blocos, o título — café iluminado, doce de leite
+    "acento": "#b87f4c",     # a barra dos blocos, o título — doce de leite mais escuro
     "ambar": "#e3bc6a",      # pergunta/confirmação — mais dourado, pra não sumir no acento
     "vermelho": "#e0555f",   # erro
 }
