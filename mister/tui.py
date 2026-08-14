@@ -148,11 +148,13 @@ Screen {
 #estado {
     height: 1;
     color: $apagado;
+    display: none;
 }
 #entrada {
     background: $painel;
     border: none;
     padding: 0;
+    height: 1;
 }
 #linha_modo {
     height: 1;
@@ -447,9 +449,9 @@ def criar_app():
             self.query_one("#medidor", Static).update(texto)
 
         def estado(self, texto: str) -> None:
-            self.query_one("#estado", Static).update(
-                Text(texto, style=CORES["apagado"])
-            )
+            alvo = self.query_one("#estado", Static)
+            alvo.update(Text(texto, style=CORES["apagado"]))
+            alvo.display = bool(texto)  # vazio não ocupa linha
 
         def modo(self, texto: str) -> None:
             self.query_one("#linha_modo", Static).update(
