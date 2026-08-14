@@ -61,7 +61,7 @@ import os
 import queue
 import subprocess
 import threading
-from contextlib import nullcontext
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -130,6 +130,11 @@ Screen {
 .bastidor {
     color: $apagado;
     margin: 0 0 0 2;
+}
+.espera {
+    color: $apagado;
+    text-style: italic;
+    margin: 0 0 1 0;
 }
 .pergunta {
     color: $ambar;
@@ -439,6 +444,18 @@ def criar_app():
                 painel.mount(Static(Text(texto), classes=classe))
             painel.scroll_end(animate=False)
 
+        def mostrar_espera(self, rotulo: str) -> None:
+            """O aviso de espera, no pé da conversa — onde a resposta vai
+            surgir. Um por vez: o novo tira o anterior."""
+            self.tirar_espera()
+            painel = self.query_one("#conversa", VerticalScroll)
+            painel.mount(Static(Text(rotulo), classes="espera", id="espera"))
+            painel.scroll_end(animate=False)
+
+        def tirar_espera(self) -> None:
+            for peca in self.query("#espera"):
+                peca.remove()
+
         def medir(self, texto: str) -> None:
             self.query_one("#medidor", Static).update(texto)
 
@@ -499,13 +516,22 @@ class PeleTui:
 
     # --- "estou ocupado" ------------------------------------------------------
 
-    # O contrato pede as duas, mas a TUI não mostra "pensando…" (excluído a
-    # pedido do dono, 14/08/2026) — viram no-op de propósito.
+    # O "pensando…" aparece NO FIM DA CONVERSA — no lugar onde a resposta vai
+    # surgir (decisão do dono, 14/08/2026) — e sai quando o passo termina.
+    @contextmanager
+    def _ocupado(self, rotulo: str):
+        self.app.call_from_thread(self.app.mostrar_espera, rotulo)
+        try:
+            yield
+        finally:
+            self.app.call_from_thread(self.app.tirar_espera)
+
     def pensando(self):
-        return nullcontext()
+        return self._ocupado("pensando…")
 
     def atividade(self, tipo: str, detalhe: str = ""):
-        return nullcontext()
+        rotulo = {"pensando": "pensando…", "executando": "fazendo"}.get(tipo, tipo)
+        return self._ocupado(f"{rotulo} {detalhe}".strip())
 
 
 def _laco(app) -> None:
