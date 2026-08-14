@@ -110,14 +110,8 @@ Screen {
     background: $fundo;
     color: $texto;
 }
-#cabecalho {
-    height: 3;
-    background: $painel;
-    padding: 0 2;
-}
 #medidor {
-    width: 1fr;
-    content-align: right middle;
+    width: auto;
     color: $apagado;
 }
 #conversa {
@@ -164,10 +158,13 @@ Screen {
     height: 1;
     color: $apagado;
 }
-#atalhos {
+#rodape {
     height: 1;
-    color: $apagado;
     padding: 0 2;
+}
+#atalhos {
+    width: 1fr;
+    color: $apagado;
 }
 Paleta, Sessoes {
     align: center middle;
@@ -314,16 +311,16 @@ def criar_app():
         # --- a tela -----------------------------------------------------------
 
         def compose(self) -> ComposeResult:
-            with Horizontal(id="cabecalho"):
-                # Sem wordmark, decisão do dono (14/08/2026): o cabeçalho é só
-                # a faixa com o medidor na direita.
-                yield Static("", id="medidor")
+            # Sem cabeçalho, decisão do dono (14/08/2026): a conversa começa
+            # no topo; o medidor mora no rodapé, à direita.
             yield VerticalScroll(id="conversa")
             with Vertical(id="caixa"):
                 yield Static("", id="estado")
                 yield Input(placeholder="fale com o Mister…", id="entrada")
                 yield Static("", id="linha_modo")
-            yield Static(ATALHOS, id="atalhos")
+            with Horizontal(id="rodape"):
+                yield Static(ATALHOS, id="atalhos")
+                yield Static("", id="medidor")
 
         def on_mount(self) -> None:
             self.query_one("#entrada", Input).focus()
@@ -550,6 +547,7 @@ def _laco(app) -> None:
         return
 
     app.call_from_thread(app.modo, f"conversa · {cerebro.modelo}")
+    app.call_from_thread(app.medir, "0 mensagens")
     conversa.iniciar_sessao()
     historico: list[dict] = []
     pele.abrir(0)
