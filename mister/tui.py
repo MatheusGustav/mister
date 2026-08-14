@@ -80,7 +80,7 @@ CORES = {
     "texto": "#ddd5cc",      # texto normal — um claro quente, pra casar
     "apagado": "#80756a",    # bastidor, medidor, atalhos, linha do modelo
     "acento": "#b87f4c",     # o título e as bordas de destaque — doce de leite
-    "barra": "#63421f",      # a barra na esquerda dos blocos — café bem fechado
+    "barra": "#77522a",      # a barra na esquerda dos blocos — café fechado
     "ambar": "#e3bc6a",      # pergunta/confirmação — mais dourado, pra não sumir no acento
     "vermelho": "#e0555f",   # erro
 }
