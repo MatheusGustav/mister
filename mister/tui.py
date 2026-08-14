@@ -572,7 +572,8 @@ def _laco(app) -> None:
                     item,
                     perguntar=pele.perguntar,
                     mostrar=pele.mostrar,
-                    tracar=pele.tracar,
+                    # Sem `tracar` de propósito (decisão do dono, 14/08/2026):
+                    # o "[pensei: …]"/"[passo: …]" não aparece na TUI.
                     pensando=pele.pensando,
                     atividade=pele.atividade,
                     historico=historico,
