@@ -86,7 +86,9 @@ CORES = {
 }
 
 # O rodapé de atalhos (só texto — o comportamento mora em BINDINGS/COMANDOS).
-ATALHOS = "esc interromper · /comandos · ctrl+a paleta · ctrl+q sair"
+# Os comandos de barra aparecem por extenso: rodapé não pode inventar botão
+# que não existe (o "/comandos" antigo parecia comando e não era).
+ATALHOS = "esc interromper · /nova /conversas /exportar /sair · ctrl+a paleta · ctrl+q sair"
 
 # Os comandos — a barra (/nome) e a paleta (ctrl+a) leem ESTE dicionário:
 # comando novo entra aqui e aparece nos dois lugares. Sem /ajuda de propósito
