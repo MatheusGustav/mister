@@ -115,14 +115,8 @@ Screen {
     background: $painel;
     padding: 0 2;
 }
-#titulo {
-    width: 1fr;
-    content-align: left middle;
-    text-style: bold;
-    color: $acento;
-}
 #medidor {
-    width: auto;
+    width: 1fr;
     content-align: right middle;
     color: $apagado;
 }
@@ -321,7 +315,8 @@ def criar_app():
 
         def compose(self) -> ComposeResult:
             with Horizontal(id="cabecalho"):
-                yield Static("◆ MISTER", id="titulo")
+                # Sem wordmark, decisão do dono (14/08/2026): o cabeçalho é só
+                # a faixa com o medidor na direita.
                 yield Static("", id="medidor")
             yield VerticalScroll(id="conversa")
             with Vertical(id="caixa"):
