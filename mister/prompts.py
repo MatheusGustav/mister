@@ -246,6 +246,17 @@ def montar_instrucao() -> str:
         "sugira o que dá — nunca deixe o usuário no vácuo. Pastas pessoais do "
         "PC: formato ~/Nome (ex.: ~/Downloads).",
         "",
+        "",
+        # A lista de tarefas é a única coisa que o painel da TUI mostra e que
+        # NINGUÉM escreve sozinho — sem esta linha a tool existe e nunca é
+        # chamada. Restritiva de propósito: o risco daqui é o oposto, ele
+        # anotar lista pra "que horas são".
+        "Pedido de VÁRIOS PASSOS (3 ou mais, de verdade): anote o plano com a "
+        "ferramenta 'lista_de_tarefas' antes de começar e atualize a cada passo "
+        "que muda de estado — é assim que o dono acompanha o andamento na tela. "
+        "Pergunta simples, bate-papo e tarefa de um ou dois passos NÃO levam "
+        "lista: aí é só fazer e responder.",
+        "",
         "Ao chamar uma ferramenta, escreva JUNTO, no texto da mensagem, 1-2 frases "
         "simples contando o que vai fazer e por quê — é NARRAÇÃO PRO USUÁRIO, não "
         "anotação interna. Se estiver corrigindo o rumo, diga o que o passo "

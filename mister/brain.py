@@ -112,6 +112,14 @@ class _CerebroBase:
     """A LÓGICA do cérebro, separada do transporte: o que fazer com a resposta
     do modelo. O motor concreto só implementa COMO falar com ele (`_chamar`)."""
 
+    # O `usage` da ÚLTIMA ida à API ({prompt_tokens, completion_tokens, ...}),
+    # guardado pelo transporte. Serve pro painel da TUI desenhar a barra de
+    # contexto e mais nada — o `_chamar` continua devolvendo só a mensagem, pra
+    # não obrigar quem chama a mudar. Cérebro que nunca falou (ou motor que não
+    # informa) deixa o dicionário vazio, e o painel entende isso como "sem
+    # medida ainda".
+    ultimo_uso: dict = {}
+
     def _chamar(self, mensagens: list[dict], tools: list[dict]) -> dict:
         raise NotImplementedError
 
@@ -230,6 +238,10 @@ class Cerebro(_CerebroBase):
                 mensagem = resposta["choices"][0]["message"]
                 if not isinstance(mensagem, dict):
                     raise ValueError("mensagem fora do formato")  # cai no retry
+                # O `usage` da API fica GUARDADO, não vai no retorno: quem chama
+                # espera a mensagem crua. Quem lê é o painel da TUI.
+                uso = resposta.get("usage")
+                self.ultimo_uso = uso if isinstance(uso, dict) else {}
                 return mensagem
             except urllib.error.HTTPError as e:
                 # 429 (limite) e 5xx (servidor tossiu) tendem a passar: re-tenta.

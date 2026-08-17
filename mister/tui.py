@@ -3,20 +3,23 @@
 A estrutura, a textura E o comportamento vêm do OpenCode, por pedido do dono
 (13/08/2026); as cores e os atalhos são dele pra mexer aos poucos:
 
-    ┌─────────────────────────────────────────────────┐
-    │ ◆ MISTER                     12 mensagens       │  cabeçalho
-    ├─────────────────────────────────────────────────┤
-    │ ▌ a fala do dono, em bloco destacado            │
-    │                                                 │
-    │ a resposta do Mister, em texto corrido          │
-    │   › passo de ferramenta, em linha discreta      │  conversa (scroll)
-    │                                                 │
-    ├─────────────────────────────────────────────────┤
-    │ ▌ caixa de digitar                              │
-    │   conversa · openai/gpt-5.6-luna                │  modo + modelo
-    ├─────────────────────────────────────────────────┤
-    │ esc interromper · /comandos · ctrl+a paleta     │  rodapé de atalhos
-    └─────────────────────────────────────────────────┘
+    ┌──────────────────────────────────┬────────────────────┐
+    │ ▌ a fala do dono, em bloco       │      ▗▟█           │
+    │                                  │    ▟█████▙         │  o Pantero
+    │ a resposta do Mister             │   ███████▛         │
+    │   › passo de ferramenta          │                    │
+    │                                  │ Contexto           │
+    │                                  │ ██████░░░░░░  38%  │  o painel da
+    │                                  │ 24.1k / 128k tokens│  direita (ctrl+b)
+    ├──────────────────────────────────┤                    │
+    │   conversa · openai/gpt-5.6-luna │ Arquivos mexidos   │
+    │ ▌ caixa de digitar               │ ~/notas/hoje.md    │
+    ├──────────────────────────────────┤                    │
+    │ esc interromper · ctrl+a comandos│ Tarefas  1/3 feitas│
+    └──────────────────────────────────┴────────────────────┘
+
+Sem cabeçalho (decisão do dono): a conversa começa no topo da esquerda. À
+direita, o PAINEL — 42 colunas fixas, com rolagem própria.
 
 O COMPORTAMENTO (decidido em 13/08/2026, na conferência da doc do OpenCode):
 
@@ -46,6 +49,14 @@ O COMPORTAMENTO (decidido em 13/08/2026, na conferência da doc do OpenCode):
     `mister/revisar.py`; rearma na próxima mensagem.
   - /interruptores: os botões do dono — anotar, revisar, celular e internet —
     pra ligar/desligar na tela (`mister/interruptores.py`).
+  - O PAINEL DA DIREITA (copiado do OpenCode, por pedido do dono): o brasão,
+    o uso do contexto, os arquivos que o Mister gravou nesta conversa e a
+    lista de tarefas do pedido atual. Aparece SOZINHO com mais de 120 colunas
+    de tela — aí as duas colunas dividem o espaço. Com 120 ou menos fica
+    escondido, e ligar na mão (ctrl+b) o traz POR CIMA da conversa, encostado
+    na direita, sem encolher ninguém. A escolha manual sempre ganha do
+    automático. Ele relê o estado sozinho de segundo em segundo: é tudo o
+    mesmo processo, não passa recado pela thread de trabalho.
 
 MUDAR O VISUAL: as cores moram no dicionário `CORES` e o desenho no `_CSS`,
 logo abaixo — mexer ali não toca na lógica. Os atalhos moram em `BINDINGS` e
@@ -78,7 +89,7 @@ from pathlib import Path
 
 from rich.text import Text
 
-from mister import conversa, interruptores, memoria
+from mister import contexto, conversa, interruptores, memoria, mexidos, tarefas
 
 # --- AS CORES (mexa à vontade) ------------------------------------------------
 # A paleta é o PANTERO, o gato do dono (decisão de 13/08/2026): preto, marrom
@@ -96,10 +107,73 @@ CORES = {
     "vermelho": "#e0555f",   # erro
 }
 
+# --- O BRASÃO DO PAINEL -------------------------------------------------------
+# O Pantero, o gato do dono — o mesmo que dá nome à paleta aí em cima. Assim o
+# painel abre com a identidade que as cores da tela já contam, em vez de um
+# logo genérico colado por cima.
+#
+# A técnica são os caracteres de QUADRANTE do Unicode (▖▗▘▝▚▞▙▟▛▜▌▐▀▄█): cada
+# um divide a célula do terminal em 2×2, então 24 colunas × 12 linhas viram uma
+# grade de 48×24 pontos — resolução de sobra pra silhueta, que só tem duas
+# cores. Meio-bloco (▀▄█, 1×2 por célula) foi testado e serrilha as pernas e a
+# cauda: não usar.
+#
+# Tamanho 24×12 e cor `acento`, decisão do dono (17/08/2026). Cabe com folga
+# nas 36 colunas úteis do painel (42 menos o padding de 2+2 e a barra de
+# rolagem do textual, que come mais 2). As versões média (30×15) e grande
+# (36×18) estão no doc do painel.
+#
+# NÃO ENCOLHER ESTA ARTE. Os olhos aqui são BURACO na silhueta, e buraco fino
+# some quando a resolução cai — foi assim que o olho esquerdo se perdeu na
+# redução anterior. Tamanho novo se faz REGERANDO da foto de referência
+# (~/Imagens/Capturas de tela/Captura_de_tela_20260816_230227.png) pela receita
+# do doc do painel: PPM em texto do ImageMagick (esta máquina não tem PIL nem
+# numpy), máscara de corpo (média RGB < 128), corta a moldura, aperta na caixa,
+# reamostra por média de área numa grade de 2·colunas × 2·linhas e rebinariza
+# no corte 0,45.
+#
+# ATENÇÃO AO MEXER: os espaços do começo de cada linha FAZEM PARTE do desenho.
+# Editor que apara espaço à esquerda ou à direita entorta o gato.
+#
+# O OLHO ESQUERDO foi consertado na mão (17/08/2026): a redução pra 24×12 tinha
+# comido o topo e a base do anel dele, e o que sobrava eram dois riscos
+# verticais em vez de olho. Os dois olhos agora são anel — um buraco em volta
+# de uma pupila cheia —, como no direito, que sobreviveu inteiro.
+BRASAO = (
+    "                     ▄█▖\n"
+    "                   ▗████\n"
+    "                   ████▛\n"
+    "▄▄    ▗▟█    ▄    ▐████▘\n"
+    "█████████▙██████▙▄████▘\n"
+    "▜█▚▞█▛▄▝█████████████▘\n"
+    "▐█▄▄██▄▟████████████\n"
+    " ▀▜█████████████████▖\n"
+    "    ▐███████▀▀▜█████▌\n"
+    "    ███▜██▛   ▝██▛██▌\n"
+    "   ▟██▘██▛     ██▌▜█▌\n"
+    "   █▀ ▐█▛      ▝▛ ▝█▘"
+)
+
 # O rodapé de atalhos (só texto — o comportamento mora em BINDINGS/COMANDOS).
 # Curto de propósito (decisão do dono): o caderno do ctrl+a é quem mostra o
-# que existe — o ESC e a barra continuam funcionando, só não moram aqui.
-ATALHOS = "ctrl+a comandos · ctrl+s sair"
+# que existe — o ESC e a barra continuam funcionando, só não moram aqui. O
+# ctrl+b do painel entrou a pedido dele (17/08/2026).
+ATALHOS = "ctrl+a comandos · ctrl+b painel · ctrl+s sair"
+
+# O PAINEL DA DIREITA (copiado do OpenCode, por pedido do dono): 42 colunas
+# fixas, e ele aparece SOZINHO só quando a tela tem mais de 120 colunas — daí
+# pra baixo fica escondido, e ligar na mão (ctrl+b) o traz POR CIMA da conversa
+# em vez de dividir espaço com ela. A escolha manual sempre ganha do automático.
+LARGURA_PAINEL = 42
+COLUNAS_PRO_PAINEL = 120
+# O que sobra pra escrever dentro do painel: 42 menos o padding (2+2) e menos a
+# barra de rolagem do textual 8.2.8 (scrollbar_size_vertical = 2). É a medida
+# do brasão e o teto pra encurtar caminho de arquivo.
+LARGURA_UTIL_PAINEL = LARGURA_PAINEL - 4 - 2
+# De quanto em quanto tempo o painel relê o estado (contexto, arquivos,
+# tarefas). É tudo o mesmo processo — ler é barato, não precisa de recado da
+# thread de trabalho.
+INTERVALO_PAINEL_S = 1.0
 
 # Os comandos — a barra (/nome) e a paleta (ctrl+a) leem ESTE dicionário:
 # comando novo entra aqui e aparece nos dois lugares. Sem /ajuda de propósito
@@ -126,6 +200,32 @@ _CSS = """
 Screen {
     background: $fundo;
     color: $texto;
+}
+/* As duas colunas: a conversa (tudo o que sempre existiu) e o painel. A
+   camada 'sobre' é o que deixa o painel desenhar POR CIMA em tela estreita,
+   sem tirar espaço da conversa — na camada de baixo ele nem conta. */
+#corpo {
+    layers: base sobre;
+}
+#coluna {
+    width: 1fr;
+    height: 100%;
+}
+#painel {
+    width: 42;
+    height: 100%;
+    background: $painel;
+    padding: 1 2;
+}
+#painel.escondido {
+    display: none;
+}
+#painel.sobreposto {
+    layer: sobre;
+    dock: right;
+}
+.painel_secao {
+    margin: 0 0 1 0;
 }
 #medidor {
     width: auto;
@@ -167,10 +267,11 @@ Screen {
     padding: 0 1;
     height: auto;
 }
+/* Sem border/padding aqui de propósito: quem zera os dois é o `compact=True`
+   do Input (o CSS padrão dele no textual 8.2.8 traz `height: 3`, e era isso
+   que fazia a caixa comer 4 linhas de tela). */
 #entrada {
     background: $painel;
-    border: none;
-    padding: 0;
 }
 #linha_modo {
     height: 1;
@@ -243,6 +344,27 @@ def exportar(historico: list[dict], pasta: str | None = None) -> Path:
 # fila de RESPOSTA pra acordar a thread parada; a PeleTui o transforma em
 # KeyboardInterrupt na hora — sem exceção assíncrona.
 CANCELAR = object()
+
+
+def brasao(largura: int = LARGURA_UTIL_PAINEL) -> Text:
+    """O Pantero pronto pra tela, na cor escolhida e CENTRADO na largura útil
+    do painel.
+
+    O recuo é UM SÓ, o mesmo pra todas as linhas: centrar cada linha por conta
+    (o `text-align: center` do CSS) embaralharia o desenho, porque as linhas
+    têm comprimentos diferentes de propósito. Quem manda é a caixa do gato
+    inteiro, não a linha.
+
+    `no_wrap` pelo mesmo motivo: se a largura apertar, a arte é CORTADA na
+    direita — quebrar linha embaralha o desenho todo."""
+    linhas = BRASAO.split("\n")
+    caixa = max(len(linha) for linha in linhas)
+    recuo = " " * max(0, (largura - caixa) // 2)
+    return Text(
+        "\n".join(recuo + linha for linha in linhas),
+        style=CORES["acento"],
+        no_wrap=True,
+    )
 
 
 def interpretar_barra(texto: str) -> str | None:
@@ -364,6 +486,10 @@ def criar_app():
             # reserva muda — custa nada e salva quem tem o dedo viciado.
             Binding("ctrl+s", "quit", "sair", priority=True),
             Binding("ctrl+q", "quit", "sair"),
+            # ctrl+b (decisão do dono): liga/desliga o painel da direita. O
+            # Input do textual 8.2.8 não usa essa tecla, então o priority não
+            # é obrigatório — vai por consistência com os dois de cima.
+            Binding("ctrl+b", "painel", "painel", priority=True),
         ]
 
         def __init__(self) -> None:
@@ -381,22 +507,46 @@ def criar_app():
             self.cancelar = threading.Event()
             # Preenchido pela thread de trabalho (só leitura aqui).
             self.ocupado: bool = False
+            # O cérebro, posto aqui pelo _laco: é dele que o painel tira o
+            # `ultimo_uso` pra desenhar a barra de contexto.
+            self.cerebro = None
+            # O painel: None = automático (decide pela largura da tela); True
+            # ou False = o dono escolheu na mão e a escolha dele ganha.
+            self._painel_manual: bool | None = None
 
         # --- a tela -----------------------------------------------------------
 
         def compose(self) -> ComposeResult:
             # Sem cabeçalho, decisão do dono (14/08/2026): a conversa começa
             # no topo; o medidor mora no rodapé, à direita.
-            yield VerticalScroll(id="conversa")
-            with Vertical(id="caixa"):
-                # A linha do modo/modelo fica EM CIMA da caixa (decisão do
-                # dono, 14/08/2026). Sem linha de "pensando…" — excluída a
-                # pedido dele; o andamento aparece só pelo bastidor.
-                yield Static("", id="linha_modo")
-                yield Input(placeholder="fale com o Mister…", id="entrada")
-            with Horizontal(id="rodape"):
-                yield Static(ATALHOS, id="atalhos")
-                yield Static("", id="medidor")
+            with Horizontal(id="corpo"):
+                with Vertical(id="coluna"):
+                    yield VerticalScroll(id="conversa")
+                    with Vertical(id="caixa"):
+                        # A linha do modo/modelo fica EM CIMA da caixa (decisão
+                        # do dono, 14/08/2026). Sem linha de "pensando…" —
+                        # excluída a pedido dele; o andamento aparece só pelo
+                        # bastidor.
+                        yield Static("", id="linha_modo")
+                        # compact=True: é o modo do próprio textual que zera
+                        # border/padding e deixa a caixa com UMA linha. Sem
+                        # ele, o CSS padrão do Input (height: 3) comia duas
+                        # linhas de tela à toa.
+                        yield Input(
+                            placeholder="fale com o Mister…",
+                            id="entrada",
+                            compact=True,
+                        )
+                    with Horizontal(id="rodape"):
+                        yield Static(ATALHOS, id="atalhos")
+                        yield Static("", id="medidor")
+                with VerticalScroll(id="painel"):
+                    # Rolagem própria: lista de arquivo comprida não pode
+                    # empurrar a barra de contexto pra fora da tela.
+                    yield Static("", id="brasao")
+                    yield Static("", id="painel_contexto", classes="painel_secao")
+                    yield Static("", id="painel_arquivos", classes="painel_secao")
+                    yield Static("", id="painel_tarefas", classes="painel_secao")
 
         def on_mount(self) -> None:
             self.query_one("#entrada", Input).focus()
@@ -406,7 +556,143 @@ def criar_app():
             self._ultimo_toque = time.monotonic()
             self._revisao_armada = True
             self.set_interval(15, self._checar_ociosidade)
+            self.query_one("#brasao", Static).update(brasao())
+            self._arrumar_painel()
+            # O painel relê o estado sozinho, de segundo em segundo: contexto,
+            # arquivos e tarefas moram todos neste processo.
+            self.set_interval(INTERVALO_PAINEL_S, self._atualizar_painel)
             threading.Thread(target=_laco, args=(self,), daemon=True).start()
+
+        # --- o painel da direita ---------------------------------------------
+
+        def on_resize(self, evento) -> None:
+            self._arrumar_painel()
+
+        def _painel_visivel(self) -> bool:
+            """Mostra o painel? A escolha MANUAL ganha do automático (ligou na
+            mão, fica ligado mesmo em tela estreita; desligou, fica desligado
+            mesmo em tela larga). Sem escolha manual, é a largura que manda."""
+            if self._painel_manual is not None:
+                return self._painel_manual
+            return self.size.width > COLUNAS_PRO_PAINEL
+
+        def _arrumar_painel(self) -> None:
+            """Põe o painel no lugar certo: escondido, do LADO (tela larga, as
+            duas colunas dividem o espaço) ou POR CIMA (tela estreita, ele vai
+            pra camada de sobreposição e a conversa não encolhe)."""
+            # O Resize pode chegar antes da tela existir (na subida do app):
+            # sem painel montado ainda não há o que arrumar.
+            achados = self.query("#painel")
+            if not achados:
+                return
+            painel = achados.first(VerticalScroll)
+            visivel = self._painel_visivel()
+            painel.set_class(not visivel, "escondido")
+            painel.set_class(
+                visivel and self.size.width <= COLUNAS_PRO_PAINEL, "sobreposto"
+            )
+            if visivel:
+                self._atualizar_painel()
+
+        def action_painel(self) -> None:
+            """ctrl+b: liga/desliga o painel na mão. Aviso pra quem for caçar
+            bug: DENTRO DO TMUX o ctrl+b é o prefixo do próprio tmux e nunca
+            chega aqui — se 'não funcionar', é isso antes de qualquer coisa."""
+            self._painel_manual = not self._painel_visivel()
+            self._arrumar_painel()
+
+        def _atualizar_painel(self) -> None:
+            """Relê o estado e redesenha as três seções. Painel escondido nem
+            gasta desenho."""
+            if not self._painel_visivel():
+                return
+            self.query_one("#painel_contexto", Static).update(self._secao_contexto())
+            self.query_one("#painel_arquivos", Static).update(self._secao_arquivos())
+            self.query_one("#painel_tarefas", Static).update(self._secao_tarefas())
+
+        @staticmethod
+        def _titulo(nome: str, cauda: str = "") -> Text:
+            texto = Text(nome, style=f"bold {CORES['acento']}")
+            if cauda:
+                texto.append(f"  {cauda}", style=CORES["apagado"])
+            texto.append("\n")
+            return texto
+
+        def _secao_contexto(self) -> Text:
+            """A barra de ocupação da janela do modelo. O número é o
+            `prompt_tokens` da ÚLTIMA chamada — o tamanho ATUAL do contexto,
+            não a soma do que já se gastou (ver mister/contexto.py)."""
+            cerebro = getattr(self, "cerebro", None)
+            uso = getattr(cerebro, "ultimo_uso", None) or {}
+            try:
+                usados = int(uso.get("prompt_tokens") or 0)
+            except (TypeError, ValueError):
+                usados = 0
+            total, estimado = contexto.teto(getattr(cerebro, "modelo", "") or "")
+
+            texto = self._titulo("Contexto")
+            linhas = contexto.barra(usados, total)
+            if usados <= 0:
+                texto.append(linhas[0], style=CORES["apagado"])
+                return texto
+            cor = {
+                "normal": CORES["acento"],
+                "alto": CORES["ambar"],
+                "critico": CORES["vermelho"],
+            }[contexto.nivel(usados, total)]
+            desenho, conta = linhas
+            cheias = desenho.count(contexto.CHEIO)
+            vazias = desenho.count(contexto.VAZIO)
+            texto.append(contexto.CHEIO * cheias, style=cor)
+            texto.append(contexto.VAZIO * vazias, style=CORES["apagado"])
+            texto.append(desenho[cheias + vazias:], style=CORES["apagado"])
+            texto.append(f"\n{conta}", style=CORES["apagado"])
+            if estimado:
+                # Barra sem aviso é barra que mente: o teto de reserva tem que
+                # aparecer como reserva.
+                texto.append("\n(teto estimado)", style=CORES["apagado"])
+            return texto
+
+        def _secao_arquivos(self) -> Text:
+            """Os arquivos que o Mister GRAVOU nesta conversa, do mais novo pro
+            mais antigo. `Text` de propósito: caminho vem do mundo, não vira
+            marcação."""
+            caminhos = mexidos.listar()
+            texto = self._titulo("Arquivos mexidos")
+            if not caminhos:
+                texto.append("nenhum ainda", style=CORES["apagado"])
+                return texto
+            for i, caminho in enumerate(caminhos):
+                if i:
+                    texto.append("\n")
+                texto.append(
+                    mexidos.encurtar(caminho, LARGURA_UTIL_PAINEL),
+                    style=CORES["texto"],
+                )
+            return texto
+
+        def _secao_tarefas(self) -> Text:
+            """O plano do pedido atual, do jeito que o cérebro anotou pela tool
+            `lista_de_tarefas`."""
+            itens = tarefas.listar()
+            texto = self._titulo("Tarefas", tarefas.resumo())
+            if not itens:
+                texto.append("nenhuma ainda", style=CORES["apagado"])
+                return texto
+            marcas = {"feito": "✓", "fazendo": "▸", "pendente": "○"}
+            cores = {
+                "feito": CORES["apagado"],
+                "fazendo": CORES["ambar"],
+                "pendente": CORES["texto"],
+            }
+            for i, item in enumerate(itens):
+                if i:
+                    texto.append("\n")
+                estado = item["estado"]
+                texto.append(
+                    f"{marcas[estado]} {item['texto']}", style=cores[estado]
+                )
+            return texto
 
         def _checar_ociosidade(self) -> None:
             if not self._revisao_armada or self.ocupado:
@@ -709,6 +995,7 @@ def _laco(app) -> None:
     import mister.tools.maquina  # noqa: F401
     import mister.tools.memoria  # noqa: F401
     import mister.tools.regras  # noqa: F401
+    import mister.tools.tarefas  # noqa: F401
 
     pele = PeleTui(app)
     try:
@@ -717,6 +1004,17 @@ def _laco(app) -> None:
         pele.erro(str(erro))
         pele.nota("dica: confira o .env (a chave da API vai em MISTER_API_KEY).")
         return
+
+    # O painel precisa do cérebro pra ler o `ultimo_uso` (a barra de contexto)
+    # — sem esta linha ele não tem de onde tirar o número.
+    app.cerebro = cerebro
+    # O teto de contexto do modelo vem da OpenRouter e fica em cache. Vai numa
+    # thread à parte de propósito: uma ida à rede aqui atrasaria a primeira
+    # fala do dono. Não deu (sem rede, modelo fora da lista)? O painel usa o
+    # teto de reserva e AVISA que é estimado.
+    threading.Thread(
+        target=lambda: contexto.atualizar(cerebro.modelo), daemon=True
+    ).start()
 
     app.call_from_thread(app.modo, f"conversa · {cerebro.modelo}")
     app.call_from_thread(app.medir, "0 mensagens")
@@ -735,10 +1033,16 @@ def _laco(app) -> None:
                 if nome == "nova":
                     conversa.iniciar_sessao()
                     historico = []
+                    # O painel é da CONVERSA, não do processo: conversa nova
+                    # começa com a lista de arquivos e a de tarefas zeradas.
+                    mexidos.limpar()
+                    tarefas.limpar()
                     pele.nota("(conversa nova — a anterior ficou guardada)")
                 elif nome == "retomar":
                     conversa.iniciar_sessao(argumento)
                     historico = conversa.carregar_sessao(argumento)
+                    mexidos.limpar()
+                    tarefas.limpar()
                     app.call_from_thread(app.repovoar, blocos_da_conversa(historico))
                     pele.nota(f"(retomada — {len(historico)} mensagens lembradas)")
                 elif nome == "revisar":
