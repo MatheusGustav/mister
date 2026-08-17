@@ -9,13 +9,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
-
-from mister.registry import tool
+from mister.registry import Formulario, tool
 from mister.resultado import Resultado
 
 
-class SemParametros(BaseModel):
+class SemParametros(Formulario):
     """Formulário vazio: a tool não precisa de nada."""
 
 

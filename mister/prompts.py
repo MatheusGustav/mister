@@ -36,15 +36,39 @@ _FICHA_PERGUNTAR = {
             "sozinho, e pedir licença antes faz ele responder a MESMA pergunta "
             "duas vezes."
         ),
+        # Escrita na mão, mas segue as MESMAS regras do strict que o
+        # `_schema_params` aplica nas outras (required cheio +
+        # additionalProperties: false) — senão a API recusa a lista inteira.
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
                 "pergunta": {"type": "string", "description": "a pergunta, curta e direta"},
             },
             "required": ["pergunta"],
+            "additionalProperties": False,
         },
     },
 }
+
+
+def _aceita_nulo(prop: dict) -> dict:
+    """Deixa um campo aceitar `null` — é assim que o STRICT expressa "opcional".
+
+    No formato strict TODO campo é obrigatório; quem não tem o que dizer manda
+    `null`. Então 'pasta' vira `["string","null"]`, e o despachante descarta o
+    null antes de validar pro default do formulário valer (ver `dispatcher`)."""
+    prop = dict(prop)
+    if "type" in prop:
+        tipos = prop["type"] if isinstance(prop["type"], list) else [prop["type"]]
+        if "null" not in tipos:
+            prop["type"] = [*tipos, "null"]
+    elif "anyOf" in prop:
+        if {"type": "null"} not in prop["anyOf"]:
+            prop["anyOf"] = [*prop["anyOf"], {"type": "null"}]
+    elif "$ref" in prop:
+        prop = {"anyOf": [prop, {"type": "null"}]}
+    return prop
 
 
 def _schema_params(formulario: Type[BaseModel]) -> dict:
@@ -52,27 +76,41 @@ def _schema_params(formulario: Type[BaseModel]) -> dict:
     (Pydantic `model_json_schema`) — a mesma ficha que valida a resposta agora
     também é a que a API mostra ao modelo.
 
-    Campo OBRIGATÓRIO entra sempre. Campo com default entra como OPCIONAL (é
-    opção legítima da tool — a 'pasta' do celular, por exemplo, precisa ser
-    preenchível), MENOS os INTERNOS (`confirmacao.CAMPOS_INTERNOS`): 'confirmado'
-    e afins ficam escondidos do cérebro pra ele não preenchê-los sozinho e furar
-    a confirmação — e o despachante ainda descarta por garantia (prompt esconde,
-    despachante garante)."""
+    Campo INTERNO (`confirmacao.CAMPOS_INTERNOS`) fica de fora: 'confirmado' e
+    afins ficam escondidos do cérebro pra ele não preenchê-los sozinho e furar a
+    confirmação — e o despachante ainda descarta por garantia (prompt esconde,
+    despachante garante).
+
+    O resto do formato é EXIGÊNCIA DO STRICT (ver `montar_tools`), e o provedor
+    VALIDA — conferido em 16/08/2026: schema fora destas regras devolve HTTP 400
+    em toda chamada, não "ignora e segue". As três regras:
+
+      - `additionalProperties: false` no objeto;
+      - TODO campo em `required` (não existe campo ausente);
+      - campo com default vira `["tipo","null"]` — é o "não preenchi" do strict.
+
+    Campo com default continua sendo opção legítima da tool (a 'pasta' do
+    celular precisa ser preenchível): ele só troca "posso omitir" por "posso
+    mandar null"."""
     bruto = formulario.model_json_schema()
     props = {}
-    obrigatorios = []
     for nome, campo in formulario.model_fields.items():
         if nome in CAMPOS_INTERNOS:
             continue
         prop = dict(bruto.get("properties", {}).get(nome, {}))
         prop.pop("title", None)   # o "Title" automático do Pydantic é ruído
         prop.pop("default", None)  # default é assunto do formulário, não do modelo
-        props[nome] = prop
-        if campo.is_required():
-            obrigatorios.append(nome)
-    schema = {"type": "object", "properties": props, "required": obrigatorios}
+        props[nome] = prop if campo.is_required() else _aceita_nulo(prop)
+    schema = {
+        "type": "object",
+        "properties": props,
+        "required": list(props),
+        "additionalProperties": False,
+    }
     # Campo que referencia sub-modelo/enum traria um "$ref" solto sem isto. Hoje
-    # as tools são de tipos simples — é só cinto de segurança.
+    # as tools são de tipos simples — é só cinto de segurança. CUIDADO se um dia
+    # existir sub-modelo: o strict exige `additionalProperties: false` e required
+    # cheio DENTRO de cada $defs também, e isto aqui só copia o que o Pydantic deu.
     if "$defs" in bruto:
         schema["$defs"] = bruto["$defs"]
     return schema
@@ -83,13 +121,25 @@ def montar_tools() -> list[dict]:
     mais a ficha de controle 'perguntar'.
 
     'responder' NÃO existe como ficha: resposta final é texto puro, que é o
-    jeito nativo de encerrar o turno."""
+    jeito nativo de encerrar o turno.
+
+    `strict: True` prende a GERAÇÃO ao schema: o provedor não deixa o modelo
+    emitir campo faltando nem tipo trocado — o erro morre antes de virar
+    chamada, em vez de virar recusa do despachante. Anda COLADO no formato que
+    o `_schema_params` produz: o provedor valida o schema e devolve HTTP 400 se
+    ele não seguir as regras do strict (conferido em 16/08/2026 — mexer num sem
+    o outro derruba todo turno).
+
+    O limite, que nenhum strict resolve: ele garante a FORMA do parâmetro, não o
+    CONTEÚDO. O modelo continua podendo pedir a coisa errada com o campo certo —
+    por isso o despachante e a confirmação do dono continuam sendo a garantia."""
     fichas = [
         {
             "type": "function",
             "function": {
                 "name": spec.nome,
                 "description": spec.descricao,
+                "strict": True,
                 "parameters": _schema_params(spec.formulario),
             },
         }

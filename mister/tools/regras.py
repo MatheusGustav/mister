@@ -11,14 +11,12 @@ regra recém-gravada já vale na fala seguinte.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 from mister import regras
-from mister.registry import tool
+from mister.registry import Formulario, tool
 from mister.resultado import Resultado
 
 
-class GuardarRegraParams(BaseModel):
+class GuardarRegraParams(Formulario):
     regra: str
 
 

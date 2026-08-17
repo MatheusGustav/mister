@@ -23,14 +23,12 @@ pede confirmação SEMPRE (critério de irreversibilidade, ver
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
-
 from mister import envios, interruptores, leituras, memoria
-from mister.registry import tool
+from mister.registry import Formulario, tool
 from mister.resultado import Resultado
 
 
-class AnotarMemoriaParams(BaseModel):
+class AnotarMemoriaParams(Formulario):
     titulo: str
     conteudo: str
 
@@ -83,22 +81,22 @@ def anotar_memoria(params: AnotarMemoriaParams) -> Resultado:
 
 # --- ler, corrigir e apagar (síncronas, com a trava de ler-antes) -----------
 
-class LerNotaParams(BaseModel):
+class LerNotaParams(Formulario):
     nome: str
 
 
-class TrocarTrechoParams(BaseModel):
+class TrocarTrechoParams(Formulario):
     nome: str
     velho: str
     novo: str
 
 
-class ReescreverNotaParams(BaseModel):
+class ReescreverNotaParams(Formulario):
     nome: str
     conteudo: str
 
 
-class ApagarNotaParams(BaseModel):
+class ApagarNotaParams(Formulario):
     nome: str
 
 

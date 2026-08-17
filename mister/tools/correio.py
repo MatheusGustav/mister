@@ -22,10 +22,8 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-from pydantic import BaseModel
-
 from mister import envios, interruptores
-from mister.registry import tool
+from mister.registry import Formulario, tool
 from mister.resultado import Resultado
 
 try:  # extra OPCIONAL: o Mister tem que subir e rodar sem ele
@@ -162,24 +160,24 @@ def _caminho_remoto(pasta: str, nome: str) -> str:
 
 # --- formulários (Pydantic) --------------------------------------------------
 
-class SemParametros(BaseModel):
+class SemParametros(Formulario):
     """A tool não precisa de nada."""
 
 
-class EnviarParaCelularParams(BaseModel):
+class EnviarParaCelularParams(Formulario):
     caminho: str
 
 
-class OlharPastaCelularParams(BaseModel):
+class OlharPastaCelularParams(Formulario):
     pasta: str = ""
 
 
-class PuxarDoCelularParams(BaseModel):
+class PuxarDoCelularParams(Formulario):
     nome: str
     pasta: str = ""
 
 
-class OlharNoCelularParams(BaseModel):
+class OlharNoCelularParams(Formulario):
     nome: str
     pasta: str = ""
 

@@ -17,10 +17,8 @@ import os
 import subprocess
 from pathlib import Path
 
-from pydantic import BaseModel
-
 from mister import leituras
-from mister.registry import tool
+from mister.registry import Formulario, tool
 from mister.resultado import Resultado
 
 # --- rodar_comando -------------------------------------------------------------
@@ -31,7 +29,7 @@ TIMEOUT_COMANDO_S = 60
 SAIDA_COMANDO_MAX = 20_000
 
 
-class RodarComandoParams(BaseModel):
+class RodarComandoParams(Formulario):
     comando: str
 
 
@@ -79,7 +77,7 @@ def rodar_comando(params: RodarComandoParams) -> Resultado:
 
 # --- ler_arquivo -----------------------------------------------------------
 
-class LerArquivoParams(BaseModel):
+class LerArquivoParams(Formulario):
     caminho: str
 
 
@@ -112,7 +110,7 @@ def ler_arquivo(params: LerArquivoParams) -> Resultado:
 
 # --- escrever_arquivo --------------------------------------------------------
 
-class EscreverArquivoParams(BaseModel):
+class EscreverArquivoParams(Formulario):
     caminho: str
     conteudo: str
 
@@ -157,7 +155,7 @@ RESULTADOS_MAX = 50
 VARREDURA_MAX = 200_000
 
 
-class ProcurarArquivoParams(BaseModel):
+class ProcurarArquivoParams(Formulario):
     nome: str = ""
     conteudo: str = ""
     pasta: str = "~"

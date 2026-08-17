@@ -25,10 +25,15 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# CAMPOS INTERNOS: existem no formulário da tool, mas são do SISTEMA, não do
-# cérebro. Ele nem os enxerga (o prompt os esconde — ver prompts._schema_params)
-# e, se um modelo enganado preenchê-los mesmo assim, o despachante os DESCARTA;
-# só a decisão carimbada pelo laço, depois do "s" do dono, os mantém.
+# CAMPOS INTERNOS: viajam nos `params` de uma decisão, mas são do SISTEMA, não
+# do cérebro — e NÃO moram no formulário de tool nenhuma (o formulário proíbe
+# campo extra, ver `registry.Formulario`). Só existem entre o `Pendente` e a
+# re-execução: o laço carimba, o despachante confere o carimbo COM eles e só
+# então os descarta, antes de validar.
+#
+# O cérebro nem os enxerga (o prompt os esconde — ver prompts._schema_params) e,
+# se um modelo enganado preenchê-los mesmo assim, o despachante os DESCARTA sem
+# aval do dono, o que joga a chamada de volta pro portão da confirmação.
 #
 # A lista mora AQUI (a peça da confirmação) pra ser UMA só: prompt e despachante
 # leem a mesma. Campo com default que NÃO está nesta lista é opção legítima da
