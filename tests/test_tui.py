@@ -95,10 +95,14 @@ def test_laco_registra_todas_as_familias_de_tools():
     assert not faltando, f"o _laco não registra as tools de: {sorted(faltando)}"
 
 
-def _rodar_app(corpo, monkeypatch):
+def _rodar_app(corpo, monkeypatch, tamanho=(100, 30)):
     """Sobe o app de verdade (headless, via pilot do textual) e roda `corpo`
     dentro dele. Sem chave de API de propósito: o laço de trabalho morre no
-    aviso de chave e não encosta em rede."""
+    aviso de chave e não encosta em rede.
+
+    `tamanho` é (colunas, linhas) — o painel da direita decide sozinho pela
+    largura, então tem teste que precisa de tela larga e teste que precisa de
+    tela estreita."""
     import asyncio
 
     textual = pytest.importorskip("textual")  # noqa: F841 — extra opcional
@@ -106,7 +110,7 @@ def _rodar_app(corpo, monkeypatch):
 
     async def _dentro():
         app = tui.criar_app()()
-        async with app.run_test(size=(100, 30)) as pilot:
+        async with app.run_test(size=tamanho) as pilot:
             await pilot.pause(0.2)
             await corpo(app, pilot)
 
@@ -252,6 +256,146 @@ def test_digitar_sem_enviar_conta_como_atividade(monkeypatch):
         assert tempo.monotonic() - app._ultimo_toque < 5
 
     _rodar_app(corpo, monkeypatch)
+
+
+# --- o painel da direita ------------------------------------------------------
+
+def test_brasao_cabe_na_largura_util_do_painel():
+    """O painel tem 42 colunas, o padding come 2+2 e a barra de rolagem do
+    textual 8.2.8 come mais 2: sobram 36. Arte mais larga ganha rolagem
+    horizontal e sai torta."""
+    linhas = tui.BRASAO.split("\n")
+    assert max(len(linha) for linha in linhas) <= tui.LARGURA_UTIL_PAINEL
+    # E os espaços da esquerda são o desenho: linha aparada entorta o gato.
+    assert linhas[0].startswith("  ")
+
+
+def test_brasao_sai_centrado_sem_torcer_o_desenho():
+    """O recuo é UM só, igual em todas as linhas: centrar linha a linha
+    (text-align do CSS) embaralharia o gato, porque elas têm comprimentos
+    diferentes de propósito."""
+    caixa = max(len(linha) for linha in tui.BRASAO.split("\n"))
+    saidas = tui.brasao(largura=36).plain.split("\n")
+    originais = tui.BRASAO.split("\n")
+    recuos = {len(linha) - len(linha.lstrip(" ")) - (len(o) - len(o.lstrip(" ")))
+              for linha, o in zip(saidas, originais)}
+    assert recuos == {(36 - caixa) // 2}
+    assert max(len(linha) for linha in saidas) <= 36
+
+
+def test_painel_aparece_sozinho_em_tela_larga(monkeypatch):
+    async def corpo(app, pilot):
+        painel = app.query_one("#painel")
+        assert app._painel_visivel()
+        assert not painel.has_class("escondido")
+        assert not painel.has_class("sobreposto")  # do LADO, dividindo a tela
+        assert app.query_one("#coluna").size.width == 160 - tui.LARGURA_PAINEL
+
+    _rodar_app(corpo, monkeypatch, tamanho=(160, 30))
+
+
+def test_painel_fica_escondido_em_tela_estreita(monkeypatch):
+    async def corpo(app, pilot):
+        assert not app._painel_visivel()
+        assert app.query_one("#painel").has_class("escondido")
+        assert app.query_one("#coluna").size.width == 100  # a conversa fica inteira
+
+    _rodar_app(corpo, monkeypatch, tamanho=(100, 30))
+
+
+def test_ctrl_b_em_tela_estreita_poe_o_painel_por_cima(monkeypatch):
+    """Ligado na mão com pouca coluna, ele NÃO divide espaço: vai pra camada de
+    sobreposição, encostado na direita, e a conversa continua do tamanho que
+    estava."""
+    async def corpo(app, pilot):
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        painel = app.query_one("#painel")
+        assert not painel.has_class("escondido")
+        assert painel.has_class("sobreposto")
+        assert app.query_one("#coluna").size.width == 100
+
+    _rodar_app(corpo, monkeypatch, tamanho=(100, 30))
+
+
+def test_a_escolha_manual_ganha_do_automatico(monkeypatch):
+    """Desligou na mão em tela larga: continua desligado, mesmo com espaço de
+    sobra. (E o ctrl+b tem que chegar no app com o foco na caixa de digitar —
+    é o Input que engolia o ctrl+a antes do priority.)"""
+    async def corpo(app, pilot):
+        assert app._painel_visivel()
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert not app._painel_visivel()
+        assert app.query_one("#painel").has_class("escondido")
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert app._painel_visivel()
+
+    _rodar_app(corpo, monkeypatch, tamanho=(160, 30))
+
+
+def test_painel_mostra_arquivos_mexidos_e_tarefas(monkeypatch, tmp_path):
+    """As duas seções lêem os módulos direto, de segundo em segundo — o teste
+    chama o redesenho na mão pra não depender do relógio."""
+    from mister import mexidos, tarefas
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    async def corpo(app, pilot):
+        mexidos.marcar(tmp_path / "notas" / "hoje.md")
+        tarefas.definir([
+            {"texto": "ler o arquivo", "estado": "feito"},
+            {"texto": "trocar o trecho", "estado": "fazendo"},
+        ])
+        app._atualizar_painel()
+        await pilot.pause()
+        assert "~/notas/hoje.md" in app._secao_arquivos().plain
+        tela_tarefas = app._secao_tarefas().plain
+        assert "1/2 feitas" in tela_tarefas
+        assert "✓ ler o arquivo" in tela_tarefas
+        assert "▸ trocar o trecho" in tela_tarefas
+
+    _rodar_app(corpo, monkeypatch, tamanho=(160, 30))
+
+
+def test_painel_sem_nada_ainda_nao_fica_em_branco(monkeypatch):
+    """Conversa recém-aberta: as três seções dizem que estão vazias em vez de
+    sumirem — painel em branco parece painel quebrado."""
+    async def corpo(app, pilot):
+        assert "nenhum ainda" in app._secao_arquivos().plain
+        assert "nenhuma ainda" in app._secao_tarefas().plain
+        assert "sem medida ainda" in app._secao_contexto().plain
+
+    _rodar_app(corpo, monkeypatch, tamanho=(160, 30))
+
+
+def test_barra_de_contexto_le_o_ultimo_uso_do_cerebro(monkeypatch):
+    """O caminho inteiro: o _laco põe o cérebro no app, o transporte guarda o
+    `usage` da última ida, e o painel desenha o prompt_tokens (o tamanho ATUAL
+    do contexto, não a soma do que já se gastou)."""
+    class CerebroFalso:
+        modelo = "x/y"
+        ultimo_uso = {"prompt_tokens": 24_100, "completion_tokens": 900}
+
+    async def corpo(app, pilot):
+        app.cerebro = CerebroFalso()
+        tela = app._secao_contexto().plain
+        assert "24.1k / 128k tokens" in tela  # 128k é o teto de reserva
+        assert "(teto estimado)" in tela      # e a tela DIZ que é reserva
+
+    _rodar_app(corpo, monkeypatch, tamanho=(160, 30))
+
+
+def test_caixa_de_digitar_ocupa_uma_linha_so(monkeypatch):
+    """Com o textual 8.2.8 o CSS padrão do Input traz `height: 3` e a caixa
+    renderizava com 4 linhas (modo/modelo + digitar + 2 em branco). O
+    `compact=True` é o conserto."""
+    async def corpo(app, pilot):
+        assert app.query_one("#entrada").size.height == 1
+        assert app.query_one("#caixa").size.height == 2  # modo/modelo + digitar
+
+    _rodar_app(corpo, monkeypatch, tamanho=(160, 30))
 
 
 def test_importar_tui_nao_exige_textual(monkeypatch):

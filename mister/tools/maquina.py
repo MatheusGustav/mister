@@ -10,6 +10,10 @@ que já existe e não foi lido nesta sessão — o resto roda direto.
 `ler_arquivo` marca a leitura na trava, junto com `ler_nota` e a leitura
 automática — é o mesmo registro compartilhado, não interessa se o que foi lido
 é nota do grafo ou arquivo qualquer do disco.
+
+`escrever_arquivo` marca em DOIS registros quando dá certo: na trava (leu o
+que acabou de escrever) e no `mexidos.py`, que é de onde o painel da TUI tira
+a lista de arquivos mexidos na conversa.
 """
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from mister import leituras
+from mister import leituras, mexidos
 from mister.registry import tool
 from mister.resultado import Resultado
 
@@ -142,6 +146,7 @@ def escrever_arquivo(params: EscreverArquivoParams) -> Resultado:
     except OSError as erro:
         return Resultado(False, f"Não consegui gravar '{params.caminho}': {erro}")
     leituras.marcar(caminho)
+    mexidos.marcar(caminho)  # só depois do write_text: gravação que falhou não conta
     return Resultado(True, f"Gravei '{params.caminho}'.")
 
 

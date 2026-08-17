@@ -11,17 +11,18 @@ dono. Isolar aqui é a rede de proteção; ler o env por chamada é a regra que
 segura ela.
 
 Os caminhos graváveis: a conversa, o acervo de conversas, o MISTER.md (as
-regras do dono), o grafo da memória (memoria/) e o índice dela. O correio
-guarda o dele em ~/.config/ekodide/, que é do
+regras do dono), o grafo da memória (memoria/), o índice dela e o cache do teto
+de contexto por modelo. O correio guarda o dele em ~/.config/ekodide/, que é do
 EKODIDE, não daqui — e nenhum teste chega perto disso (o ekodide é dublado,
 ver test_correio.py).
 
-A trava de ler-antes (`leituras.py`) mora em RAM, fora do env — cada teste
-zera o registro pra um não vazar leitura pro outro.
+A trava de ler-antes (`leituras.py`), os arquivos mexidos (`mexidos.py`) e a
+lista de tarefas (`tarefas.py`) moram em RAM, fora do env — cada teste zera os
+três pra um não vazar estado pro outro.
 """
 import pytest
 
-from mister import indice, leituras
+from mister import indice, leituras, mexidos, tarefas
 
 
 @pytest.fixture(autouse=True)
@@ -33,6 +34,7 @@ def mister_isolado(monkeypatch, tmp_path):
     monkeypatch.setenv("MISTER_INDICE", str(tmp_path / "indice.json"))
     monkeypatch.setenv("MISTER_INTERRUPTORES", str(tmp_path / "interruptores.json"))
     monkeypatch.setenv("MISTER_EXPORTADAS", str(tmp_path / "exportadas"))
+    monkeypatch.setenv("MISTER_CONTEXTO_MODELOS", str(tmp_path / "contexto_modelos.json"))
 
     def _sem_dublagem(textos):
         raise indice.IndiceIndisponivel("o teste não dublou indice.embutir")
@@ -42,3 +44,5 @@ def mister_isolado(monkeypatch, tmp_path):
     # nem sobe o modelo de verdade durante os testes.
     monkeypatch.setattr(indice, "embutir", _sem_dublagem)
     leituras.esquecer_tudo()
+    mexidos.limpar()
+    tarefas.limpar()

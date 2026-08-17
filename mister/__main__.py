@@ -19,6 +19,7 @@ import mister.tools.correio  # noqa: F401
 import mister.tools.maquina  # noqa: F401
 import mister.tools.memoria  # noqa: F401
 import mister.tools.regras  # noqa: F401
+import mister.tools.tarefas  # noqa: F401
 
 
 def _escolher_conversa(ui) -> list[dict]:
