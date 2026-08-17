@@ -1,11 +1,12 @@
 """OS INTERRUPTORES — os botões de ligar/desligar do dono.
 
 Estavam prometidos desde o desenho da memória ("o interruptor é botão, e botão
-mora na TUI"): agora a TUI existe, eles existem. Três botões:
+mora na TUI"): agora a TUI existe, eles existem. Quatro botões:
 
   - `anotar`   — o Mister pode gravar nota nova no grafo (anotar_memoria)?
   - `revisar`  — a revisão em segundo plano (10 min de ociosidade) roda?
   - `celular`  — as 5 tools do ekodide (enviar/olhar/puxar...) atendem?
+  - `internet` — as 2 tools da Exa (pesquisar_web/abrir_pagina) atendem?
 
 TUDO NASCE LIGADO — desligar é exceção, não padrão (instalado = disponível, a
 regra de sempre). O estado persiste em `~/.mister/interruptores.json` pra
@@ -29,6 +30,7 @@ NOMES = {
     "anotar": "o Mister anotar memória nova por conta própria",
     "revisar": "a revisão das notas em segundo plano (10 min parado)",
     "celular": "as ferramentas do celular (ekodide)",
+    "internet": "as ferramentas de internet (pesquisar e abrir página)",
 }
 
 

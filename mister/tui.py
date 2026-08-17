@@ -44,8 +44,8 @@ O COMPORTAMENTO (decidido em 13/08/2026, na conferência da doc do OpenCode):
   - O RELÓGIO DO REVISAR: 10 min do dono parado (janela aberta) e o laço
     dispara UMA passada de arrumação das notas em segundo plano — ver
     `mister/revisar.py`; rearma na próxima mensagem.
-  - /interruptores: os botões do dono — anotar, revisar e celular — pra
-    ligar/desligar na tela (`mister/interruptores.py`).
+  - /interruptores: os botões do dono — anotar, revisar, celular e internet —
+    pra ligar/desligar na tela (`mister/interruptores.py`).
 
 MUDAR O VISUAL: as cores moram no dicionário `CORES` e o desenho no `_CSS`,
 logo abaixo — mexer ali não toca na lógica. Os atalhos moram em `BINDINGS` e
@@ -108,7 +108,7 @@ COMANDOS = {
     "nova": "começar uma conversa nova (a atual fica guardada)",
     "conversas": "listar as conversas guardadas e retomar uma",
     "exportar": "salvar esta conversa num arquivo .md",
-    "interruptores": "ligar/desligar o anotar, o revisar e o celular",
+    "interruptores": "ligar/desligar o anotar, o revisar, o celular e a internet",
     "sair": "fechar o Mister",
 }
 
@@ -705,6 +705,7 @@ def _laco(app) -> None:
     # As tools se cadastram no registro quando o módulo é importado.
     import mister.tools.basic  # noqa: F401
     import mister.tools.correio  # noqa: F401
+    import mister.tools.internet  # noqa: F401
     import mister.tools.maquina  # noqa: F401
     import mister.tools.memoria  # noqa: F401
     import mister.tools.regras  # noqa: F401

@@ -60,9 +60,27 @@ def despachar(decisao: "Decisao") -> Resultado | Pendente:
                 "carimbo da confirmação) — cancelei por segurança. Peça de novo.",
             )
 
-    # VALIDA: tenta encaixar os parâmetros no formulário da tool.
+    # VALIDA: tenta encaixar os parâmetros no formulário da tool. Duas coisas
+    # saem ANTES, e as duas só AQUI — depois da conferência do carimbo, que
+    # segue calculada sobre os params inteiros, do jeito que o `Pendente` os
+    # guardou (tirar antes faria o carimbo deixar de bater):
+    #
+    #   - os CAMPOS INTERNOS: não moram no formulário, e com o `extra="forbid"`
+    #     da base (`registry.Formulario`) um 'confirmado' sobrando faria toda
+    #     ação confirmada morrer com "parâmetros inválidos" DEPOIS do sim do dono;
+    #   - os NULOS: no strict TODO campo é obrigatório e "não preenchi" chega
+    #     como null (ver prompts._schema_params). Descartar é o que faz o
+    #     DEFAULT do formulário valer — sem isto, 'pasta': null viraria erro de
+    #     tipo. Vale porque nenhum formulário aceita None de propósito hoje; se
+    #     um dia aceitar (campo Optional de verdade), esta linha precisa saber
+    #     diferenciar "não preenchi" de "preenchi com nada".
+    limpos = {
+        nome: valor
+        for nome, valor in params.items()
+        if nome not in CAMPOS_INTERNOS and valor is not None
+    }
     try:
-        formulario_preenchido = spec.formulario(**params)
+        formulario_preenchido = spec.formulario(**limpos)
     except ValidationError as erro:
         return Resultado(False, f"Parâmetros inválidos para '{decisao.intencao}':\n{erro}")
 

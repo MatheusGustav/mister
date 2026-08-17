@@ -250,14 +250,17 @@ def test_olhar_com_celular_fora_do_ar_devolve_o_motivo(ekodide_dublado):
 
 def test_a_pasta_e_visivel_pro_cerebro():
     """Campo com default NÃO é campo interno: se 'pasta' ficasse escondida, o
-    cérebro nunca conseguiria olhar nada além da raiz."""
+    cérebro nunca conseguiria olhar nada além da raiz.
+
+    No formato strict ela entra em `required` como todas (lá não existe campo
+    ausente) — o que a mantém OPCIONAL é aceitar null."""
     from mister.prompts import montar_tools
 
-    ficha = next(
+    parametros = next(
         f for f in montar_tools() if f["function"]["name"] == "olhar_pasta_celular"
-    )
-    assert "pasta" in ficha["function"]["parameters"]["properties"]
-    assert ficha["function"]["parameters"]["required"] == []
+    )["function"]["parameters"]
+    assert parametros["properties"]["pasta"]["type"] == ["string", "null"]
+    assert parametros["required"] == ["pasta"]
 
 
 # --- puxar: grava no disco, mas não apaga nada — não confirma ---------------

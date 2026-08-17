@@ -7,11 +7,11 @@ verdade produz essa mesma forma é o que o test_brain segura.
 from dataclasses import dataclass, field
 
 import pytest
-from pydantic import BaseModel
 
-from mister.confirmacao import Pendente, PrecisaConfirmar, carimbar
+from mister import dispatcher
+from mister.confirmacao import Pendente, carimbar
 from mister.dispatcher import despachar
-from mister.registry import REGISTRO, tool
+from mister.registry import REGISTRO, Formulario, tool
 from mister.resultado import Resultado
 
 import mister.tools.basic  # noqa: F401  (cadastra as tools no registro)
@@ -27,23 +27,34 @@ class _Decisao:
     carimbo: str = ""
 
 
-class _MexeNoDiscoParams(BaseModel):
+class _MexeNoDiscoParams(Formulario):
     alvo: str
-    confirmado: bool = False  # CAMPO INTERNO: default => escondido do cérebro
+    pasta: str = "raiz"  # campo com DEFAULT: o cérebro pode mandar null nele
+    # Sem 'confirmado' aqui de propósito: CAMPO INTERNO não mora no formulário
+    # (ver confirmacao.CAMPOS_INTERNOS) — o despachante o descarta antes de
+    # validar, e com o `extra="forbid"` da base ele seria erro se sobrasse.
 
 
 @pytest.fixture(autouse=True)
-def tool_que_confirma():
+def tool_que_confirma(monkeypatch):
     """Uma tool de mentira que só age com aval — o cenário do puxar_do_celular,
-    sem rede nenhuma no meio."""
+    sem rede nenhuma no meio.
+
+    Quem decide que ela pede aval é o DESPACHANTE, não a tool (o desenho de
+    hoje: `pergunta_de_confirmacao` olha intenção+params e a tool só executa) —
+    por isso o critério entra por monkeypatch em vez de um `raise` no handler."""
     antes = dict(REGISTRO)
 
     @tool("mexer_no_disco", _MexeNoDiscoParams, "tool de teste que pede aval")
     def _handler(params: _MexeNoDiscoParams) -> Resultado:
-        if not params.confirmado:
-            raise PrecisaConfirmar(f"Posso mexer em {params.alvo}?")
-        return Resultado(True, f"mexi em {params.alvo}")
+        return Resultado(True, f"mexi em {params.alvo} ({params.pasta})")
 
+    def _criterio(intencao: str, params: dict) -> str | None:
+        if intencao == "mexer_no_disco":
+            return f"Posso mexer em {params.get('alvo')}?"
+        return None
+
+    monkeypatch.setattr(dispatcher, "pergunta_de_confirmacao", _criterio)
     yield
     REGISTRO.clear()
     REGISTRO.update(antes)
@@ -73,10 +84,28 @@ def test_validacao_barra_params_faltando():
 
 
 def test_param_inventado_pelo_modelo_nao_vira_acao():
-    # Pydantic ignora extra por padrão; o que importa é que o obrigatório seja
-    # exigido e a ação só rode com o formulário completo.
+    # Nome trocado: falta o obrigatório E sobra um inventado — não executa.
     out = despachar(_Decisao("mexer_no_disco", {"pasta": "~/x"}))
     assert out.ok is False
+
+
+def test_campo_inventado_junto_do_certo_e_recusado():
+    """O `extra="forbid"` da base: antes, um campo que o modelo inventou passava
+    IGNORADO EM SILÊNCIO e a ação rodava assim mesmo. Agora vira recusa, e a
+    explicação volta pro cérebro em vez de o chute sumir sem rastro."""
+    out = despachar(_Decisao("mexer_no_disco", {"alvo": "~/x", "inventado": 123}))
+    assert out.ok is False and "inválid" in out.mensagem.lower()
+
+
+def test_campo_nulo_e_descartado_pro_default_valer():
+    """No strict TODO campo é obrigatório e "não preenchi" chega como null (ver
+    prompts._schema_params). Sem descartar, 'pasta': None quebraria o `str` do
+    formulário; descartando, o default entra."""
+    out = despachar(_Decisao("mexer_no_disco", {"alvo": "~/x", "pasta": None},
+                             aval_do_dono=True,
+                             carimbo=carimbar("mexer_no_disco",
+                                              {"alvo": "~/x", "pasta": None})))
+    assert out.ok and "(raiz)" in out.mensagem
 
 
 # --- a tranca anti-furo (campo interno) --------------------------------------
