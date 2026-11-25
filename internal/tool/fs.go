@@ -226,7 +226,7 @@ func deleteFileTool() Tool {
 			if err != nil {
 				return Fail("%v", err)
 			}
-			path, err := env.Workspace.Resolve(in.Caminho, true)
+			path, err := env.Workspace.ResolveEntry(in.Caminho)
 			if err != nil {
 				return Fail("%v", err)
 			}
@@ -234,7 +234,7 @@ func deleteFileTool() Tool {
 				return Fail("não é permitido excluir a própria pasta de trabalho.")
 			}
 			if err := os.Remove(path); err != nil {
-				if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+				if info, statErr := os.Lstat(path); statErr == nil && info.IsDir() {
 					return Fail("%q é uma pasta com arquivos dentro. Exclua os arquivos antes, um a um.", in.Caminho)
 				}
 				return Fail("%s", describeFSError("excluir", in.Caminho, err))

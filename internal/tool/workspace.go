@@ -77,6 +77,27 @@ func (w *Workspace) Resolve(path string, write bool) (string, error) {
 	return "", fmt.Errorf("%w: não é permitido %s %q; este agente só mexe dentro de %s", ErrOutsideWorkspace, action, path, w.root)
 }
 
+// ResolveEntry is Resolve for removing an entry: a symlink at the end of the
+// path is the entry itself, not the file it points to.
+func (w *Workspace) ResolveEntry(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return w.Resolve(path, true)
+	}
+	abs := path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(w.root, abs)
+	}
+	abs = filepath.Clean(abs)
+	if info, err := os.Lstat(abs); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return w.Resolve(path, true)
+	}
+	dir, err := w.Resolve(filepath.Dir(abs), true)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, filepath.Base(abs)), nil
+}
+
 // realPath resolves symlinks on the part of the path that exists, so a link
 // pointing outside the workspace is caught even when the target file is new.
 func realPath(path string) string {

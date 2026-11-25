@@ -192,3 +192,47 @@ func TestListDir(t *testing.T) {
 		t.Error("listar pasta que não existe deveria falhar")
 	}
 }
+
+func TestDeleteFile_RemovesTheLinkAndKeepsItsTarget(t *testing.T) {
+	t.Parallel()
+	env := newEnv(t)
+	root := env.Workspace.Root()
+	target := writeFile(t, env, "alvo.txt", "x")
+	outside := filepath.Join(t.TempDir(), "fora.txt")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{"atalho": target, "sub/para-fora": outside}
+	for name, to := range links {
+		if err := os.Symlink(to, filepath.Join(root, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	del := find(t, FileTools(), "excluir_arquivo")
+
+	for name, to := range links {
+		if res := call(t, del, env, map[string]any{"caminho": name}); res.IsError {
+			t.Fatalf("excluir o link %s: %s", name, res.Content)
+		}
+		if _, err := os.Lstat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Errorf("o link %s ainda existe: %v", name, err)
+		}
+		if _, err := os.Stat(to); err != nil {
+			t.Errorf("o arquivo apontado por %s foi apagado: %v", name, err)
+		}
+	}
+
+	// A link to a folder outside does not open the way to what is inside it.
+	if err := os.Symlink(filepath.Dir(outside), filepath.Join(root, "pasta-fora")); err != nil {
+		t.Fatal(err)
+	}
+	if res := call(t, del, env, map[string]any{"caminho": "pasta-fora/fora.txt"}); !res.IsError {
+		t.Error("excluir um arquivo de fora por dentro de um link deveria falhar")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("o arquivo de fora foi apagado: %v", err)
+	}
+}
