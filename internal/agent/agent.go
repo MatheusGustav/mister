@@ -98,8 +98,9 @@ type Agent struct {
 	hooks    Hooks
 	// notices returns what happened outside the turn (a thread that finished).
 	notices func() []string
-	// recall returns the memory notes related to a text, or "".
-	recall func(ctx context.Context, text string) string
+	recall  RecallFunc
+	// delivered are the notes already in this conversation: each one arrives once.
+	delivered map[string]bool
 
 	mu      sync.Mutex
 	history []provider.Message
@@ -113,8 +114,12 @@ type Deps struct {
 	Journal  Journal
 	Hooks    Hooks
 	Notices  func() []string
-	Recall   func(ctx context.Context, text string) string
+	Recall   RecallFunc
 }
+
+// RecallFunc returns the memory notes related to a text, ready to attach to a
+// message, and their names. Notes in skip stay out. No related note is "".
+type RecallFunc func(ctx context.Context, text string, skip map[string]bool) (notes string, names []string)
 
 func New(set Settings, deps Deps) *Agent {
 	a := &Agent{
@@ -180,16 +185,19 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 // working, the date). The memory is searched with the input alone, so the
 // header does not blur the subject.
 func (a *Agent) RunWith(ctx context.Context, header, input string) (string, error) {
+	// Compacting before the new input keeps it out of the summary, and lets
+	// the memory search below deliver again the notes that left with the history.
+	if a.needsCompaction() {
+		if err := a.compact(ctx, false); err != nil {
+			a.notice("não consegui compactar o contexto: " + err.Error())
+		}
+	}
 	var blocks []provider.Block
 	if header != "" {
 		blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: header + "\n\n"})
 	}
 	blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: input})
-	if a.recall != nil {
-		if notes := a.recall(ctx, input); notes != "" {
-			blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: notes})
-		}
-	}
+	blocks = append(blocks, a.remember(ctx, input)...)
 	if err := a.appendUser(blocks); err != nil {
 		return "", err
 	}
@@ -200,7 +208,7 @@ func (a *Agent) RunWith(ctx context.Context, header, input string) (string, erro
 			return "", fmt.Errorf("agente %s interrompido: %w", a.set.ID, err)
 		}
 		if a.needsCompaction() {
-			if err := a.compact(ctx); err != nil {
+			if err := a.compact(ctx, true); err != nil {
 				a.notice("não consegui compactar o contexto: " + err.Error())
 			}
 		}
@@ -236,7 +244,11 @@ func (a *Agent) RunWith(ctx context.Context, header, input string) (string, erro
 				return "", err
 			}
 		case len(uses) > 0:
-			if err := a.appendUser(a.runTools(ctx, uses)); err != nil {
+			results := a.runTools(ctx, uses)
+			// The subject may have changed in the middle of the work, with no
+			// new message: search the memory with what just happened.
+			results = append(results, a.remember(ctx, roundSubject(uses, results))...)
+			if err := a.appendUser(results); err != nil {
 				return "", err
 			}
 		case resp.Stop == provider.StopMaxTokens:
@@ -253,6 +265,52 @@ func (a *Agent) RunWith(ctx context.Context, header, input string) (string, erro
 		}
 	}
 	return "", fmt.Errorf("agente %s: %w (%d)", a.set.ID, ErrMaxIterations, a.set.MaxIterations)
+}
+
+// remember searches the memory with a text and returns the related notes not
+// yet delivered in this conversation, as a block to attach to a message.
+func (a *Agent) remember(ctx context.Context, text string) []provider.Block {
+	if a.recall == nil || strings.TrimSpace(text) == "" {
+		return nil
+	}
+	notes, names := a.recall(ctx, text, a.delivered)
+	if notes == "" {
+		return nil
+	}
+	if a.delivered == nil {
+		a.delivered = make(map[string]bool)
+	}
+	for _, name := range names {
+		a.delivered[name] = true
+	}
+	return []provider.Block{{Type: provider.BlockText, Text: notes}}
+}
+
+const (
+	subjectInputLen  = 300
+	subjectErrorLen  = 500
+	subjectMaxLength = 1500
+)
+
+// roundSubject describes one round of tools for the memory search: what was
+// asked of each tool and what went wrong. Successful outputs stay out: a file
+// that was read says little about what the agent is stuck on.
+func roundSubject(uses, results []provider.Block) string {
+	var b strings.Builder
+	for i, use := range uses {
+		fmt.Fprintf(&b, "%s %s\n", use.ToolName, clip(string(use.Input), subjectInputLen))
+		if i < len(results) && results[i].IsError {
+			fmt.Fprintf(&b, "%s\n", clip(results[i].Text, subjectErrorLen))
+		}
+	}
+	return clip(b.String(), subjectMaxLength)
+}
+
+func clip(text string, limit int) string {
+	if len(text) > limit {
+		return strings.ToValidUTF8(text[:limit], "")
+	}
+	return text
 }
 
 func (a *Agent) request(messages []provider.Message) provider.Request {

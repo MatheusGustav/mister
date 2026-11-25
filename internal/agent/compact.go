@@ -24,8 +24,9 @@ func (a *Agent) needsCompaction() bool {
 
 // compact replaces the history by a summary the model writes. The request
 // reuses the whole cached conversation and only adds the instruction at the
-// end. The preamble and a pending user message stay word for word.
-func (a *Agent) compact(ctx context.Context) error {
+// end. The preamble and a pending user message stay word for word. With
+// resume, the agent is in the middle of a task and is told to carry on.
+func (a *Agent) compact(ctx context.Context, resume bool) error {
 	history := a.snapshot()
 	req := a.request(append(history, provider.UserText(compactPrompt)))
 	req.OnText = nil
@@ -51,11 +52,13 @@ func (a *Agent) compact(ctx context.Context) error {
 	blocks := []provider.Block{{Type: provider.BlockText, Text: text.String()}}
 	if pending := pendingUserText(history); len(pending) > 0 {
 		blocks = append(blocks, pending...)
-	} else {
+	} else if resume {
 		blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: "Continue o trabalho de onde parou."})
 	}
 	compacted := []provider.Message{{Role: provider.RoleUser, Blocks: blocks}}
 
+	// The notes left with the history: they may be delivered again.
+	a.delivered = nil
 	a.mu.Lock()
 	a.history = compacted
 	a.stats.Compactions++

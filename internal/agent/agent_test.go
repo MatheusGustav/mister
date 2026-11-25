@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -347,7 +348,9 @@ func TestAgent_Run_AttachesNoticesAndRecall(t *testing.T) {
 		pending = nil
 		return out
 	}
-	h.agent.recall = func(_ context.Context, text string) string { return "[memória] nota sobre " + text }
+	h.agent.recall = func(_ context.Context, text string, _ map[string]bool) (string, []string) {
+		return "[memória] nota sobre " + text, []string{"nota"}
+	}
 
 	if _, err := h.agent.Run(context.Background(), "redmi"); err != nil {
 		t.Fatal(err)
@@ -367,9 +370,9 @@ func TestAgent_RunWith_SearchesMemoryWithTheInputAlone(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Settings{}, func(int, provider.Request) (*provider.Response, error) { return say("ok"), nil })
 	var searched string
-	h.agent.recall = func(_ context.Context, text string) string {
+	h.agent.recall = func(_ context.Context, text string, _ map[string]bool) (string, []string) {
 		searched = text
-		return "[memória] nota"
+		return "[memória] nota", []string{"nota"}
 	}
 	if _, err := h.agent.RunWith(context.Background(), "Projeto: /x\nData: 24/11/2026", "em qual porta roda o banco?"); err != nil {
 		t.Fatal(err)
@@ -383,6 +386,122 @@ func TestAgent_RunWith_SearchesMemoryWithTheInputAlone(t *testing.T) {
 	}
 	if len(msg.Blocks) != 3 {
 		t.Errorf("quero 3 blocos (cabeçalho, pergunta, memória), veio %d", len(msg.Blocks))
+	}
+}
+
+// fakeMemory holds notes by keyword: a search brings the notes whose keyword
+// is in the text, except the ones already delivered.
+type fakeMemory struct {
+	notes    map[string]string
+	searches []string
+}
+
+func (m *fakeMemory) recall(_ context.Context, text string, skip map[string]bool) (string, []string) {
+	m.searches = append(m.searches, text)
+	var names []string
+	for keyword := range m.notes {
+		if strings.Contains(text, keyword) && !skip[keyword] {
+			names = append(names, keyword)
+		}
+	}
+	if len(names) == 0 {
+		return "", nil
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	b.WriteString("[memória]")
+	for _, name := range names {
+		b.WriteString(" " + m.notes[name])
+	}
+	return b.String(), names
+}
+
+func TestAgent_Run_SearchesMemoryAfterEachToolRound(t *testing.T) {
+	t.Parallel()
+	failing := simpleTool("rodar_comando", false, func(context.Context) tool.Result {
+		return tool.Fail("a porta 8080 do docker já está em uso")
+	})
+	reading := simpleTool("ler_arquivo", true, func(context.Context) tool.Result {
+		return tool.OK("conteúdo que fala de docker mas não é problema")
+	})
+	mem := &fakeMemory{notes: map[string]string{"docker": "nota das portas do docker", "login": "nota do login"}}
+	h := newHarness(t, Settings{}, func(n int, _ provider.Request) (*provider.Response, error) {
+		switch n {
+		case 0:
+			return use(toolUse{id: "1", name: "ler_arquivo", input: map[string]any{"caminho": "a.txt"}}), nil
+		case 1, 2:
+			return use(toolUse{id: "c", name: "rodar_comando", input: map[string]any{"comando": "subir o ambiente"}}), nil
+		default:
+			return say("fim"), nil
+		}
+	}, failing, reading)
+	h.agent.recall = mem.recall
+
+	if _, err := h.agent.Run(context.Background(), "ajusta o login"); err != nil {
+		t.Fatal(err)
+	}
+	texts := func(i int) string {
+		var parts []string
+		msgs := h.provider.request(i).Messages
+		for _, b := range msgs[len(msgs)-1].Blocks {
+			parts = append(parts, b.Text)
+		}
+		return strings.Join(parts, " | ")
+	}
+	if got := texts(0); !strings.Contains(got, "nota do login") {
+		t.Errorf("a fala deveria trazer a nota do login: %s", got)
+	}
+	if got := texts(1); strings.Contains(got, "[memória]") {
+		t.Errorf("a saída de uma leitura que deu certo não entra na busca: %s", got)
+	}
+	if got := texts(2); !strings.Contains(got, "a porta 8080 do docker já está em uso | [memória] nota das portas do docker") {
+		t.Errorf("o erro do comando deveria trazer a nota do docker, depois do resultado: %s", got)
+	}
+	if got := texts(3); strings.Contains(got, "[memória]") {
+		t.Errorf("a mesma nota não deveria ser entregue duas vezes na conversa: %s", got)
+	}
+	if want := `ler_arquivo {"caminho":"a.txt"}`; !strings.Contains(mem.searches[1], want) {
+		t.Errorf("a busca da rodada deveria levar a chamada %q: %q", want, mem.searches[1])
+	}
+	if !strings.Contains(mem.searches[2], "rodar_comando") || !strings.Contains(mem.searches[2], "já está em uso") {
+		t.Errorf("a busca da rodada deveria levar o comando e o erro: %q", mem.searches[2])
+	}
+}
+
+func TestAgent_Compaction_AllowsNotesAgain(t *testing.T) {
+	t.Parallel()
+	mem := &fakeMemory{notes: map[string]string{"login": "nota do login"}}
+	h := newHarness(t, Settings{CompactTokens: 500}, func(n int, req provider.Request) (*provider.Response, error) {
+		switch {
+		case n == 0:
+			resp := say("primeira")
+			resp.Usage = provider.Usage{InputTokens: 900}
+			return resp, nil
+		case strings.Contains(lastMessage(req), "vai ser trocado por um resumo"):
+			return say("RESUMO"), nil
+		default:
+			return say("ok"), nil
+		}
+	})
+	h.agent.recall = mem.recall
+	for _, input := range []string{"ajusta o login", "o login de novo", "e o login outra vez"} {
+		if _, err := h.agent.Run(context.Background(), input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// First message: delivered. Second: compaction drops the history, so the
+	// note comes again. Third: already there.
+	var delivered []bool
+	for i := range h.provider.count() {
+		req := h.provider.request(i)
+		if strings.Contains(lastMessage(req), "vai ser trocado por um resumo") {
+			continue
+		}
+		last := req.Messages[len(req.Messages)-1]
+		delivered = append(delivered, strings.Contains(last.Blocks[len(last.Blocks)-1].Text, "nota do login"))
+	}
+	if len(delivered) != 3 || !delivered[0] || !delivered[1] || delivered[2] {
+		t.Errorf("entregas da nota por mensagem = %v, quero [true true false]", delivered)
 	}
 }
 
@@ -479,12 +598,19 @@ func TestAgent_Compaction(t *testing.T) {
 			t.Fatal(err)
 		}
 		after := h.provider.request(2).Messages
-		if len(after) != 1 {
-			t.Fatalf("quero 1 mensagem depois de compactar, veio %d", len(after))
+		if len(after) != 2 {
+			t.Fatalf("quero o resumo e a pergunta nova depois de compactar, veio %d mensagens", len(after))
 		}
-		last := after[0].Blocks[len(after[0].Blocks)-1].Text
-		if last != "qual a cor exata do botão?" {
-			t.Errorf("a pergunta pendente virou %q", last)
+		if summary := after[0].Text(); !strings.Contains(summary, "RESUMO") || strings.Contains(summary, "Continue o trabalho") {
+			t.Errorf("o resumo de uma conversa parada não manda continuar trabalho nenhum: %q", summary)
+		}
+		if last := after[1].Text(); last != "qual a cor exata do botão?" {
+			t.Errorf("a pergunta nova virou %q", last)
+		}
+		for _, msg := range h.provider.request(1).Messages {
+			if strings.Contains(msg.Text(), "qual a cor exata") {
+				t.Error("o resumo deveria ser pedido antes de a pergunta nova entrar no histórico")
+			}
 		}
 	})
 

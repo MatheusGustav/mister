@@ -38,7 +38,7 @@ type Options struct {
 	OwnerRules   string
 	ProjectRules string
 	Hooks        Hooks
-	Recall       func(ctx context.Context, text string) string
+	Recall       RecallFunc
 	// HostRole and HostModel override the defaults ("host" and the role's model).
 	HostRole  string
 	HostModel string
