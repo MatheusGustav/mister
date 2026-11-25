@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MatheusGustav/mister/internal/config"
 	"github.com/MatheusGustav/mister/internal/memory"
 )
 
@@ -24,16 +23,14 @@ func TestLocal_RealServer_RecallInPortuguese(t *testing.T) {
 	if dir == "" {
 		t.Skip("defina MISTER_EMBEDDING_DIR com a pasta do servidor de embedding instalado")
 	}
-	local := NewLocal(dir, DefaultModel())
+	local := NewLocal(dir)
 	if !local.Installed() {
 		t.Fatalf("não há servidor de embedding instalado em %s", dir)
 	}
 	defer local.Close()
 
-	cfg := config.Default().Embedding
 	base := t.TempDir()
-	store := memory.Open(filepath.Join(base, "notas"), filepath.Join(base, "indice.json"), local,
-		memory.Thresholds{Entry: cfg.EntryThreshold, Walk: cfg.WalkThreshold})
+	store := memory.Open(filepath.Join(base, "notas"), filepath.Join(base, "indice.json"), local, Thresholds())
 	notes := map[string]string{
 		"Celular Redmi":       "O celular de trabalho é um Redmi com 6 GB de RAM e 128 GB. Sobre a carga, veja [[Bateria do celular]]. O servidor fica em [[Servidor do cocar]].",
 		"Bateria do celular":  "A bateria do celular Redmi é de 5000 mAh e dura dois dias. O aparelho está em [[Celular Redmi]].",

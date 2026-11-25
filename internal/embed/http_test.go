@@ -22,7 +22,6 @@ type fakeEmbeddings struct {
 
 	mu      sync.Mutex
 	batches [][]string
-	auth    string
 	model   string
 	path    string
 }
@@ -36,7 +35,7 @@ func (f *fakeEmbeddings) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(data, &body)
 	f.mu.Lock()
 	f.batches = append(f.batches, body.Input)
-	f.auth, f.model, f.path = r.Header.Get("Authorization"), body.Model, r.URL.Path
+	f.model, f.path = body.Model, r.URL.Path
 	f.mu.Unlock()
 
 	if f.status != 0 {
@@ -64,20 +63,21 @@ func (f *fakeEmbeddings) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": items})
 }
 
-func newClient(t *testing.T, f *fakeEmbeddings) *HTTP {
+// serve starts the fake server and returns a client for it and its base URL.
+func serve(t *testing.T, f *fakeEmbeddings) (*client, string) {
 	t.Helper()
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
-	h := NewHTTP(srv.URL+"/v1/", "segredo", Model{Name: "modelo-x", QueryPrefix: "busca: ", DocPrefix: "titulo: {titulo} | texto: "})
-	h.Client = srv.Client()
-	return h
+	h := newClient(model{name: "modelo-x", queryPrefix: "busca: ", docPrefix: "titulo: {titulo} | texto: "})
+	h.http = srv.Client()
+	return h, srv.URL + "/v1/"
 }
 
-func TestHTTP_EmbedQuery(t *testing.T) {
+func TestClient_EmbedQuery(t *testing.T) {
 	t.Parallel()
 	f := &fakeEmbeddings{}
-	h := newClient(t, f)
-	v, err := h.EmbedQuery(context.Background(), "porta do banco")
+	h, base := serve(t, f)
+	v, err := h.embedQuery(context.Background(), base, "porta do banco")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,20 +85,20 @@ func TestHTTP_EmbedQuery(t *testing.T) {
 	if len(f.batches) != 1 || f.batches[0][0] != want || v[0] != float32(len(want)) {
 		t.Errorf("pedido %v, vetor %v", f.batches, v)
 	}
-	if f.path != "/v1/embeddings" || f.model != "modelo-x" || f.auth != "Bearer segredo" {
-		t.Errorf("caminho %q, modelo %q, autorização %q", f.path, f.model, f.auth)
+	if f.path != "/v1/embeddings" || f.model != "modelo-x" {
+		t.Errorf("caminho %q, modelo %q", f.path, f.model)
 	}
 }
 
-func TestHTTP_EmbedDocuments_BatchesAndKeepsOrder(t *testing.T) {
+func TestClient_EmbedDocuments_BatchesAndKeepsOrder(t *testing.T) {
 	t.Parallel()
 	f := &fakeEmbeddings{}
-	h := newClient(t, f)
+	h, base := serve(t, f)
 	var docs []memory.Document
 	for i := range batchSize + 3 {
 		docs = append(docs, memory.Document{Title: "nota", Text: strings.Repeat("x", i+1)})
 	}
-	vectors, err := h.EmbedDocuments(context.Background(), docs)
+	vectors, err := h.embedDocuments(context.Background(), base, docs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,16 +116,16 @@ func TestHTTP_EmbedDocuments_BatchesAndKeepsOrder(t *testing.T) {
 	}
 }
 
-func TestHTTP_ShortensTextTheServerRefuses(t *testing.T) {
+func TestClient_ShortensTextTheServerRefuses(t *testing.T) {
 	t.Parallel()
 	f := &fakeEmbeddings{maxLen: 1000}
-	h := newClient(t, f)
+	h, base := serve(t, f)
 	docs := []memory.Document{
 		{Title: "a", Text: "curto"},
 		{Title: "b", Text: strings.Repeat("denso ", 2000)},
 		{Title: "c", Text: "curto também"},
 	}
-	vectors, err := h.EmbedDocuments(context.Background(), docs)
+	vectors, err := h.embedDocuments(context.Background(), base, docs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,24 +147,24 @@ func TestHTTP_ShortensTextTheServerRefuses(t *testing.T) {
 	}
 }
 
-func TestHTTP_Errors(t *testing.T) {
+func TestClient_Errors(t *testing.T) {
 	t.Parallel()
-	t.Run("sem acesso não insiste", func(t *testing.T) {
+	t.Run("erro que não é de tamanho não insiste", func(t *testing.T) {
 		t.Parallel()
-		f := &fakeEmbeddings{status: http.StatusUnauthorized}
-		h := newClient(t, f)
-		_, err := h.EmbedDocuments(context.Background(), []memory.Document{{Text: strings.Repeat("x", 3000)}, {Text: "y"}})
-		if err == nil || !strings.Contains(err.Error(), "HTTP 401") || !strings.Contains(err.Error(), "sem acesso") {
+		f := &fakeEmbeddings{status: http.StatusServiceUnavailable}
+		h, base := serve(t, f)
+		_, err := h.embedDocuments(context.Background(), base, []memory.Document{{Text: strings.Repeat("x", 3000)}, {Text: "y"}})
+		if err == nil || !strings.Contains(err.Error(), "HTTP 503") || !strings.Contains(err.Error(), "sem acesso") {
 			t.Errorf("erro = %v", err)
 		}
 		if len(f.batches) != 1 {
-			t.Errorf("fez %d pedidos; erro de chave não melhora cortando o texto", len(f.batches))
+			t.Errorf("fez %d pedidos; servidor indisponível não melhora cortando o texto", len(f.batches))
 		}
 	})
 	t.Run("servidor fora do ar", func(t *testing.T) {
 		t.Parallel()
-		h := NewHTTP("http://127.0.0.1:1/v1", "", Model{Name: "m"})
-		if _, err := h.EmbedQuery(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "sem resposta") {
+		h := newClient(model{name: "m"})
+		if _, err := h.embedQuery(context.Background(), "http://127.0.0.1:1/v1", "x"); err == nil || !strings.Contains(err.Error(), "sem resposta") {
 			t.Errorf("erro = %v", err)
 		}
 	})
@@ -174,22 +174,22 @@ func TestHTTP_Errors(t *testing.T) {
 			fmt.Fprint(w, `{"data":[]}`)
 		}))
 		defer srv.Close()
-		h := NewHTTP(srv.URL, "", Model{Name: "m"})
-		if _, err := h.EmbedQuery(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "0 vetores para 1 textos") {
+		h := newClient(model{name: "m"})
+		if _, err := h.embedQuery(context.Background(), srv.URL, "x"); err == nil || !strings.Contains(err.Error(), "0 vetores para 1 textos") {
 			t.Errorf("erro = %v", err)
 		}
 	})
 }
 
-func TestHTTP_ID_ChangesWithModelAndPrefixes(t *testing.T) {
+func TestClient_ID_ChangesWithModelAndPrefixes(t *testing.T) {
 	t.Parallel()
-	a := NewHTTP("u", "", Model{Name: "m", QueryPrefix: "q", DocPrefix: "d"})
-	b := NewHTTP("outra-url", "chave", Model{Name: "m", QueryPrefix: "q", DocPrefix: "d"})
-	c := NewHTTP("u", "", Model{Name: "m", QueryPrefix: "q2", DocPrefix: "d"})
-	if a.ID() != b.ID() {
-		t.Error("o mesmo modelo em outro endereço dá os mesmos vetores: o índice vale")
+	a := newClient(model{name: "m", queryPrefix: "q", docPrefix: "d"})
+	b := newClient(model{name: "m", queryPrefix: "q", docPrefix: "d"})
+	c := newClient(model{name: "m", queryPrefix: "q2", docPrefix: "d"})
+	if a.id() != b.id() {
+		t.Error("o mesmo modelo com os mesmos prefixos dá os mesmos vetores: o índice vale")
 	}
-	if a.ID() == c.ID() {
+	if a.id() == c.id() {
 		t.Error("mudar o prefixo muda os vetores: o índice precisa ser refeito")
 	}
 }

@@ -48,13 +48,18 @@ func DefaultSources() Sources {
 	}
 }
 
-// DefaultModel is how EmbeddingGemma expects queries and documents.
-func DefaultModel() Model {
-	return Model{
-		Name:        "embeddinggemma-300m",
-		QueryPrefix: "task: search result | query: ",
-		DocPrefix:   "title: {titulo} | text: ",
-	}
+// gemma is how EmbeddingGemma expects queries and documents.
+var gemma = model{
+	name:        "embeddinggemma-300m",
+	queryPrefix: "task: search result | query: ",
+	docPrefix:   "title: {titulo} | text: ",
+}
+
+// Thresholds are the similarity cuts that go with the model, measured in
+// Portuguese on 24/11/2026: the right note scores 0.52 or more, an unrelated
+// one 0.37 or less.
+func Thresholds() memory.Thresholds {
+	return memory.Thresholds{Entry: 0.45, Walk: 0.40}
 }
 
 // ErrNotInstalled means the managed server or its model is not on disk yet.
@@ -68,7 +73,7 @@ type Local struct {
 	Sources      Sources
 	IdleTimeout  time.Duration
 	StartTimeout time.Duration
-	http         *HTTP
+	client       *client
 
 	mu       sync.Mutex
 	proc     *process
@@ -84,13 +89,13 @@ type process struct {
 	done chan struct{}
 }
 
-func NewLocal(dir string, model Model) *Local {
+func NewLocal(dir string) *Local {
 	return &Local{
 		Dir:          dir,
 		Sources:      DefaultSources(),
 		IdleTimeout:  5 * time.Minute,
 		StartTimeout: 90 * time.Second,
-		http:         NewHTTP("", "", model),
+		client:       newClient(gemma),
 	}
 }
 
@@ -111,7 +116,7 @@ func (l *Local) Installed() bool {
 	return true
 }
 
-func (l *Local) ID() string { return "local|" + l.Sources.ModelFile + "|" + l.http.ID() }
+func (l *Local) ID() string { return l.Sources.ModelFile + "|" + l.client.id() }
 
 func (l *Local) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
 	url, release, err := l.acquire(ctx)
@@ -119,7 +124,7 @@ func (l *Local) EmbedQuery(ctx context.Context, query string) ([]float32, error)
 		return nil, err
 	}
 	defer release()
-	return l.http.embedOne(ctx, url, l.http.Model.QueryPrefix+query)
+	return l.client.embedQuery(ctx, url, query)
 }
 
 func (l *Local) EmbedDocuments(ctx context.Context, docs []memory.Document) ([][]float32, error) {
@@ -128,7 +133,7 @@ func (l *Local) EmbedDocuments(ctx context.Context, docs []memory.Document) ([][
 		return nil, err
 	}
 	defer release()
-	return l.http.embedDocuments(ctx, url, docs)
+	return l.client.embedDocuments(ctx, url, docs)
 }
 
 // acquire makes sure the server is up and returns its address. The caller
@@ -319,7 +324,7 @@ func (b *tailBuffer) String() string {
 // against its pinned checksum. What is already there is kept.
 func (l *Local) Install(ctx context.Context, logf func(format string, args ...any)) error {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-		return fmt.Errorf("o servidor de embedding gerenciado só existe para linux x86_64 (aqui é %s/%s): configure 'embedding.url' para usar outro servidor", runtime.GOOS, runtime.GOARCH)
+		return fmt.Errorf("o servidor de embedding só existe para linux x86_64 (aqui é %s/%s)", runtime.GOOS, runtime.GOARCH)
 	}
 	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
 		return fmt.Errorf("criando %s: %w", l.Dir, err)

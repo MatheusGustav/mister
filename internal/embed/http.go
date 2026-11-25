@@ -1,6 +1,5 @@
-// Package embed holds the embedding providers of the memory: a client for any
-// server that speaks the OpenAI /v1/embeddings format, and a managed local
-// llama-server for when nothing else is configured.
+// Package embed is the embedding provider of the memory: a llama-server kept
+// and run by the Mister itself, with the EmbeddingGemma model.
 package embed
 
 import (
@@ -48,48 +47,42 @@ func (e *statusError) retryShorter() bool {
 	return false
 }
 
-// Model says how to talk to an embedding model. The prefixes are the task
-// dialect some models are trained with; "{titulo}" in DocPrefix becomes the
-// title of the note.
-type Model struct {
-	Name        string
-	QueryPrefix string
-	DocPrefix   string
+// model says how to talk to an embedding model. The prefixes are the task
+// dialect the model is trained with; "{titulo}" in docPrefix becomes the title
+// of the note.
+type model struct {
+	name        string
+	queryPrefix string
+	docPrefix   string
 }
 
-// HTTP embeds through POST {BaseURL}/embeddings. It serves Ollama,
-// llama-server, LM Studio, OpenAI, Gemini's compatibility endpoint and others.
-type HTTP struct {
-	// BaseURL ends at the API root, for example "http://localhost:11434/v1".
-	BaseURL string
-	APIKey  string
-	Model   Model
-	Client  *http.Client
+// client embeds through POST {baseURL}/embeddings, the OpenAI format that
+// llama-server speaks.
+type client struct {
+	model model
+	http  *http.Client
 }
 
-func NewHTTP(baseURL, apiKey string, model Model) *HTTP {
-	return &HTTP{BaseURL: baseURL, APIKey: apiKey, Model: model, Client: &http.Client{Timeout: 2 * time.Minute}}
+func newClient(m model) *client {
+	return &client{model: m, http: &http.Client{Timeout: 2 * time.Minute}}
 }
 
-func (h *HTTP) ID() string {
-	return h.Model.Name + "|" + h.Model.QueryPrefix + "|" + h.Model.DocPrefix
+// id changes whenever the vectors would: another model or other prefixes.
+func (h *client) id() string {
+	return h.model.name + "|" + h.model.queryPrefix + "|" + h.model.docPrefix
 }
 
-func (h *HTTP) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	return h.embedOne(ctx, h.BaseURL, h.Model.QueryPrefix+query)
+func (h *client) embedQuery(ctx context.Context, baseURL, query string) ([]float32, error) {
+	return h.embedOne(ctx, baseURL, h.model.queryPrefix+query)
 }
 
-func (h *HTTP) EmbedDocuments(ctx context.Context, docs []memory.Document) ([][]float32, error) {
-	return h.embedDocuments(ctx, h.BaseURL, docs)
-}
-
-func (h *HTTP) embedDocuments(ctx context.Context, baseURL string, docs []memory.Document) ([][]float32, error) {
+func (h *client) embedDocuments(ctx context.Context, baseURL string, docs []memory.Document) ([][]float32, error) {
 	out := make([][]float32, 0, len(docs))
 	for start := 0; start < len(docs); start += batchSize {
 		end := min(start+batchSize, len(docs))
 		texts := make([]string, 0, end-start)
 		for _, d := range docs[start:end] {
-			texts = append(texts, strings.ReplaceAll(h.Model.DocPrefix, "{titulo}", d.Title)+d.Text)
+			texts = append(texts, strings.ReplaceAll(h.model.docPrefix, "{titulo}", d.Title)+d.Text)
 		}
 		vectors, err := h.embed(ctx, baseURL, texts)
 		var refused *statusError
@@ -114,7 +107,7 @@ func (h *HTTP) embedDocuments(ctx context.Context, baseURL string, docs []memory
 }
 
 // embedOne embeds one text, cutting it in half while the server refuses it.
-func (h *HTTP) embedOne(ctx context.Context, baseURL, text string) ([]float32, error) {
+func (h *client) embedOne(ctx context.Context, baseURL, text string) ([]float32, error) {
 	for {
 		vectors, err := h.embed(ctx, baseURL, []string{text})
 		if err == nil {
@@ -128,7 +121,7 @@ func (h *HTTP) embedOne(ctx context.Context, baseURL, text string) ([]float32, e
 	}
 }
 
-func (h *HTTP) embed(ctx context.Context, baseURL string, texts []string) ([][]float32, error) {
+func (h *client) embed(ctx context.Context, baseURL string, texts []string) ([][]float32, error) {
 	cut := make([]string, len(texts))
 	for i, t := range texts {
 		if len(t) > maxChars {
@@ -136,7 +129,7 @@ func (h *HTTP) embed(ctx context.Context, baseURL string, texts []string) ([][]f
 		}
 		cut[i] = t
 	}
-	body, err := json.Marshal(map[string]any{"model": h.Model.Name, "input": cut})
+	body, err := json.Marshal(map[string]any{"model": h.model.name, "input": cut})
 	if err != nil {
 		return nil, fmt.Errorf("montando o pedido de embedding: %w", err)
 	}
@@ -145,10 +138,7 @@ func (h *HTTP) embed(ctx context.Context, baseURL string, texts []string) ([][]f
 		return nil, fmt.Errorf("montando o pedido de embedding: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if h.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+h.APIKey)
-	}
-	resp, err := h.Client.Do(req)
+	resp, err := h.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("sem resposta do servidor de embedding em %s: %w", baseURL, err)
 	}

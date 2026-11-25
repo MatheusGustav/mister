@@ -20,6 +20,7 @@ import (
 
 	"github.com/MatheusGustav/mister/internal/agent"
 	"github.com/MatheusGustav/mister/internal/config"
+	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/memory"
 	"github.com/MatheusGustav/mister/internal/role"
 	"github.com/MatheusGustav/mister/internal/tool"
@@ -114,15 +115,13 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 		return err
 	}
 
-	embedder, local := newEmbedder(home, cfg, deps.EmbeddingSources)
-	if local != nil {
-		defer local.Close()
-		if !local.Installed() {
-			out.status("memória: o servidor de embedding local não está instalado; as notas são gravadas mas não buscadas. Rode 'mister install'.")
-		}
+	local := embed.NewLocal(home.EmbeddingDir())
+	local.Sources = deps.EmbeddingSources
+	defer local.Close()
+	if !local.Installed() {
+		out.status("memória: o servidor de embedding não está instalado; as notas são gravadas mas não buscadas. Rode 'mister install'.")
 	}
-	mem := memory.Open(home.MemoryDir(), home.IndexFile(), embedder,
-		memory.Thresholds{Entry: cfg.Embedding.EntryThreshold, Walk: cfg.Embedding.WalkThreshold})
+	mem := memory.Open(home.MemoryDir(), home.IndexFile(), local, embed.Thresholds())
 	registry := tool.NewRegistry()
 	tools := append(tool.FileTools(), tool.SearchTools()...)
 	tools = append(tools, tool.ShellTools(tool.DefaultShellLimits())...)

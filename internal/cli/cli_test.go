@@ -119,7 +119,7 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 	if stdout != "resposta 1\nresposta 2\n" {
 		t.Errorf("a saída padrão deveria trazer só as respostas: %q", stdout)
 	}
-	for _, want := range []string{"sessão ", "o servidor de embedding local não está instalado", "host [host, claude-opus-5-5, esforço high]", "fila de comandos pesados: 0 rodando, 0 esperando (limite 1)", "processo: heap"} {
+	for _, want := range []string{"sessão ", "o servidor de embedding não está instalado", "host [host, claude-opus-5-5, esforço high]", "fila de comandos pesados: 0 rodando, 0 esperando (limite 1)", "processo: heap"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("o terminal deveria mostrar %q:\n%s", want, stderr)
 		}
@@ -303,21 +303,6 @@ func TestInstall(t *testing.T) {
 	}
 	if cfg, _ := home.Load(); cfg.MaxThreads != 7 {
 		t.Errorf("a instalação alterou o config do usuário: %d", cfg.MaxThreads)
-	}
-
-	// With another embedding server in the config, nothing is downloaded.
-	if err := os.RemoveAll(home.EmbeddingDir()); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(home.ConfigFile(), []byte(`{"embedding": {"url": "http://localhost:11434/v1", "modelo": "outro"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, _, err = run(t, deps, "", "install", "--dest", dest)
-	if err != nil || !strings.Contains(out, "memória usando o servidor de embedding em http://localhost:11434/v1") {
-		t.Errorf("instalação com servidor próprio: %q, %v", out, err)
-	}
-	if _, err := os.Stat(home.EmbeddingDir()); err == nil {
-		t.Error("com 'embedding.url' no config, o servidor local não deveria ser baixado")
 	}
 }
 

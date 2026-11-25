@@ -73,7 +73,8 @@ func installFake(t *testing.T, fail bool) *Local {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l := NewLocal(t.TempDir(), Model{Name: "m", QueryPrefix: "q: ", DocPrefix: "d {titulo}: "})
+	l := NewLocal(t.TempDir())
+	l.client.model = model{name: "m", queryPrefix: "q: ", docPrefix: "d {titulo}: "}
 	l.StartTimeout = 20 * time.Second
 	if err := os.MkdirAll(filepath.Dir(l.serverPath()), 0o755); err != nil {
 		t.Fatal(err)
@@ -167,7 +168,7 @@ func TestLocal_RestartsAServerThatDied(t *testing.T) {
 
 func TestLocal_NotInstalled(t *testing.T) {
 	t.Parallel()
-	l := NewLocal(t.TempDir(), DefaultModel())
+	l := NewLocal(t.TempDir())
 	if l.Installed() {
 		t.Fatal("pasta vazia não é instalação")
 	}
@@ -240,7 +241,7 @@ func TestLocal_Install(t *testing.T) {
 	var log []string
 	logf := func(format string, args ...any) { log = append(log, fmt.Sprintf(format, args...)) }
 
-	l := NewLocal(filepath.Join(t.TempDir(), "embedding"), DefaultModel())
+	l := NewLocal(filepath.Join(t.TempDir(), "embedding"))
 	l.Sources = sources
 	if err := l.Install(context.Background(), logf); err != nil {
 		t.Fatal(err)
@@ -271,7 +272,7 @@ func TestLocal_Install(t *testing.T) {
 	}
 
 	t.Run("arquivo que não confere é recusado", func(t *testing.T) {
-		bad := NewLocal(filepath.Join(t.TempDir(), "embedding"), DefaultModel())
+		bad := NewLocal(filepath.Join(t.TempDir(), "embedding"))
 		bad.Sources = sources
 		bad.Sources.ModelSHA256 = strings.Repeat("0", 64)
 		err := bad.Install(context.Background(), logf)
@@ -284,7 +285,7 @@ func TestLocal_Install(t *testing.T) {
 	})
 
 	t.Run("download que falha", func(t *testing.T) {
-		bad := NewLocal(filepath.Join(t.TempDir(), "embedding"), DefaultModel())
+		bad := NewLocal(filepath.Join(t.TempDir(), "embedding"))
 		bad.Sources = sources
 		bad.Sources.ServerURL = srv.URL + "/nao-existe"
 		if err := bad.Install(context.Background(), logf); err == nil || !strings.Contains(err.Error(), "HTTP 404") {

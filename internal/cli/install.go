@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatheusGustav/mister/internal/config"
+	"github.com/MatheusGustav/mister/internal/embed"
 )
 
 func newInstallCommand(deps Deps) *cobra.Command {
@@ -20,7 +21,7 @@ func newInstallCommand(deps Deps) *cobra.Command {
 		Long: "Copia o binário em execução para a pasta de destino (padrão: ~/.local/bin),\n" +
 			"cria a pasta do Mister (~/.mister) com a configuração padrão, se ainda não existir,\n" +
 			"e baixa o servidor de embedding da memória (llama.cpp e o modelo EmbeddingGemma 300M,\n" +
-			"cerca de 300 MB), a não ser que o config aponte 'embedding.url' para outro servidor.",
+			"cerca de 300 MB).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -59,22 +60,16 @@ func newInstallCommand(deps Deps) *cobra.Command {
 			}
 			fmt.Fprintf(out, "agentes próprios vão em %s (um arquivo .md por agente)\n", home.RolesDir())
 
-			cfg, err := home.Load()
-			if err != nil {
-				return err
-			}
-			if _, local := newEmbedder(home, cfg, deps.EmbeddingSources); local != nil {
-				if local.Installed() {
-					fmt.Fprintf(out, "servidor de embedding da memória já instalado em %s\n", home.EmbeddingDir())
-				} else {
-					logf := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
-					if err := local.Install(cmd.Context(), logf); err != nil {
-						return fmt.Errorf("o binário e a configuração foram instalados, mas o servidor de embedding da memória não: %w", err)
-					}
-					fmt.Fprintf(out, "servidor de embedding da memória instalado em %s\n", home.EmbeddingDir())
-				}
+			local := embed.NewLocal(home.EmbeddingDir())
+			local.Sources = deps.EmbeddingSources
+			if local.Installed() {
+				fmt.Fprintf(out, "servidor de embedding da memória já instalado em %s\n", home.EmbeddingDir())
 			} else {
-				fmt.Fprintf(out, "memória usando o servidor de embedding em %s\n", cfg.Embedding.URL)
+				logf := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
+				if err := local.Install(cmd.Context(), logf); err != nil {
+					return fmt.Errorf("o binário e a configuração foram instalados, mas o servidor de embedding da memória não: %w", err)
+				}
+				fmt.Fprintf(out, "servidor de embedding da memória instalado em %s\n", home.EmbeddingDir())
 			}
 
 			if !inPath(dest) {
