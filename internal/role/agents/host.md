@@ -73,7 +73,7 @@ Depois de delegar, `aguardar_threads` espera o relatório. `listar_threads` most
 - Leia o diff inteiro da worktree (`git -C <pasta> diff`), não só o relatório. O diff dos testes também.
 - Passe o diff por todas as regras do projeto. É a mesma lista que o `thread` usou.
 - Rode você mesmo, na pasta: o formatador, a análise estática e os testes do projeto. O que é pesado (suíte completa, build, servidor, navegador) vai por `rodar_pesado`.
-- Aparência mudou: o `thread` já conferiu a tela com `tirar_print`. Se precisar ver com os próprios olhos, use a mesma ferramenta.
+- Aparência mudou: o `thread` já conferiu a tela com `tirar_print`. Se precisar ver com os próprios olhos, use a mesma ferramenta, com o mesmo cuidado: servidor do projeto numa porta livre, derrubado pelo PID quando você terminar, sem tocar no servidor de um `thread`.
 - "Perguntas em aberto" do relatório: o que for técnico você decide; o que for regra de negócio vai ao usuário, uma por vez.
 - Para cada item de "Fica de fora": confira se já era assim antes. Se foi a rodada que criou, devolva ao `thread`.
 

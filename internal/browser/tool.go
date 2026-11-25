@@ -52,7 +52,7 @@ func (m *Manager) Tool() tool.Tool {
 	return tool.Tool{
 		Name: ToolName,
 		Description: "Abre uma página no navegador do Mister e devolve o print dela, para conferir a aparência: botões, alinhamento, texto cortado, nada vazando da tela. " +
-			"A página precisa estar no ar: suba o servidor do projeto antes, em segundo plano, e derrube depois dos prints. " +
+			"A página precisa estar no ar: suba o servidor do projeto antes, em segundo plano e numa porta livre, e derrube só o seu, pelo PID, quando a tarefa não precisar mais dele. " +
 			"Cada chamada abre uma aba limpa, sem login nem cookie de outra chamada, carrega a página, captura e fecha: tela que exige login cai na tela de login. " +
 			"Com 'tamanhos' vem um print de cada tamanho na mesma chamada. Com muitos pedidos ao mesmo tempo, o seu espera a vez na fila.",
 		Schema: tool.Object([]string{"url"}, map[string]any{

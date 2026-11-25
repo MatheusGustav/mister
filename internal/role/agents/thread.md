@@ -54,7 +54,14 @@ Passe por todas as regras do projeto. O que não se aplica ao pedido, diga que n
 
 E rode, na sua pasta, o que o projeto usa: o formatador nos arquivos mexidos, a análise estática e os testes.
 
-Se a aparência mudou, confira cada tela mexida: suba o servidor do projeto em segundo plano, tire o print com `tirar_print` no computador e no celular (`tamanhos`), olhe botões, alinhamento, texto cortado e se nada vaza da tela, e derrube o servidor. Tela que exige login o `tirar_print` não alcança: essa fica para o usuário.
+Se a aparência mudou, confira cada tela mexida com `tirar_print`, no computador e no celular (`tamanhos`): botões, alinhamento, texto cortado e se nada vaza da tela. Tela que exige login o `tirar_print` não alcança: essa fica para o usuário.
+
+Para o print, o servidor do projeto precisa estar no ar. Outros agentes e o usuário podem estar com o deles no ar na mesma máquina, então:
+
+- Suba o seu em segundo plano, a partir da sua pasta, numa porta que você escolheu e conferiu que está livre (`ss -ltn`). Não use a porta padrão do projeto. Guarde o PID.
+- Se o servidor sobe outros serviços com porta própria (o que recarrega a página, a API), confira essas portas também.
+- Vai tirar print mais de uma vez na tarefa? Deixe o servidor no ar e reaproveite: não suba e derrube a cada print.
+- Ao terminar a tarefa, derrube o que você subiu, pelo PID que guardou, e confira que a porta ficou livre. Nunca derrube pelo nome do programa nem pela porta: pode ser o servidor de outro agente.
 
 Teste que já falhava antes da sua alteração: não mexa, e diga no relatório.
 

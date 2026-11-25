@@ -107,7 +107,8 @@ func ShellTools(limits ShellLimits) []Tool {
 			Description: "Roda um comando pesado (subir o servidor do projeto, navegador, Playwright, suíte completa de testes, build) pela fila: " +
 				"só um número limitado roda por vez na máquina, os outros esperam a vez. " +
 				"Servidor: suba, teste e derrube no mesmo comando, porque o comando precisa terminar para liberar a fila. " +
-				"Só para tirar print com tirar_print o servidor fica em segundo plano entre as chamadas: suba com & e a saída num arquivo, e derrube depois dos prints.",
+				"Só para tirar print com tirar_print o servidor fica em segundo plano entre as chamadas: suba com & e a saída num arquivo, numa porta livre, guarde o PID, " +
+				"deixe no ar enquanto a tarefa usar e derrube pelo PID no fim.",
 			Schema: schema(limits.HeavyTimeout, limits.HeavyMax),
 			Run: func(ctx context.Context, env *Env, raw json.RawMessage) Result {
 				in, err := decode[shellInput](raw)

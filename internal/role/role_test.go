@@ -111,6 +111,11 @@ func TestLoad_NativeRoles(t *testing.T) {
 	if !strings.Contains(thread.Instructions, "você confere com `tirar_print` antes de devolver") || strings.Contains(thread.Instructions, "Você não confere tela") {
 		t.Error("o thread deveria conferir a tela que mexeu com tirar_print")
 	}
+	for _, want := range []string{"conferiu que está livre", "Guarde o PID", "não suba e derrube a cada print", "Nunca derrube pelo nome do programa nem pela porta"} {
+		if !strings.Contains(thread.Instructions, want) {
+			t.Errorf("o thread perdeu o cuidado com o servidor do projeto %q", want)
+		}
+	}
 	if thread.Model != "opus" || !strings.Contains(thread.Instructions, "Sem commit, push") {
 		t.Errorf("o agente thread não veio como esperado: modelo %q", thread.Model)
 	}
