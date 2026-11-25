@@ -63,7 +63,7 @@ func (e *wordEmbedder) EmbedDocuments(_ context.Context, docs []Document) ([][]f
 func newStore(t *testing.T, e Embedder) *Store {
 	t.Helper()
 	dir := t.TempDir()
-	return Open(filepath.Join(dir, "notas"), filepath.Join(dir, "indice.json"), e, Thresholds{Entry: 0.5, Walk: 0.3})
+	return Open(filepath.Join(dir, "notas"), filepath.Join(dir, "indice.json"), e, Thresholds{Entry: 0.5, Walk: 0.3, Duplicate: 0.9})
 }
 
 func TestSlug(t *testing.T) {
@@ -265,6 +265,72 @@ func TestStore_RecallText(t *testing.T) {
 	e.fail = errors.New("servidor de embedding fora do ar")
 	if got, _ := s.RecallText(context.Background(), "celular redmi", nil); got != "" {
 		t.Errorf("com o embedding fora do ar a conversa segue sem memória: %q", got)
+	}
+}
+
+func TestStore_Similar(t *testing.T) {
+	t.Parallel()
+	e := &wordEmbedder{id: "v1"}
+	s := newStore(t, e)
+	if _, err := s.Write("Portas do docker", "o docker usa a porta 8080"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	similar, err := s.Similar(ctx, "Docker em dev", "a porta do docker é a 8080")
+	if err != nil || similar == nil || similar.Name != "portas-do-docker" || !strings.Contains(similar.Body, "porta 8080") {
+		t.Fatalf("a nota parecida deveria ser achada, inteira: %+v, %v", similar, err)
+	}
+	if other, err := s.Similar(ctx, "Gato", "o gato dorme"); err != nil || other != nil {
+		t.Errorf("outro assunto não é duplicata: %+v, %v", other, err)
+	}
+	if self, err := s.Similar(ctx, "Portas do Docker", "o docker usa a porta 8080"); err != nil || self != nil {
+		t.Errorf("a própria nota não conta como parecida: %+v, %v", self, err)
+	}
+	if none, err := newStore(t, nil).Similar(ctx, "x", "docker"); err != nil || none != nil {
+		t.Errorf("sem embedding não há conferência: %+v, %v", none, err)
+	}
+}
+
+func TestTools_WriteWarnsAboutSimilarNote(t *testing.T) {
+	t.Parallel()
+	e := &wordEmbedder{id: "v1"}
+	s := newStore(t, e)
+	write := s.Tools()[0]
+	run := func(input map[string]any) tool.Result {
+		raw, _ := json.Marshal(input)
+		return write.Run(context.Background(), nil, raw)
+	}
+	if res := run(map[string]any{"titulo": "Portas do docker", "conteudo": "o docker usa a porta 8080"}); res.IsError {
+		t.Fatal(res.Content)
+	}
+
+	res := run(map[string]any{"titulo": "Docker em dev", "conteudo": "a porta do docker é a 8080"})
+	if !res.IsError {
+		t.Fatalf("deveria recusar e mostrar a nota parecida: %s", res.Content)
+	}
+	for _, want := range []string{"portas-do-docker", "o docker usa a porta 8080", "nota_nova: true"} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("o aviso não contém %q:\n%s", want, res.Content)
+		}
+	}
+	if s.Exists("Docker em dev") {
+		t.Error("a nota parecida não deveria ter sido gravada")
+	}
+
+	if res := run(map[string]any{"titulo": "Docker em dev", "conteudo": "a porta do docker é a 8080", "nota_nova": true}); res.IsError || !s.Exists("Docker em dev") {
+		t.Errorf("com nota_nova a nota é gravada mesmo parecida: %s", res.Content)
+	}
+	if res := run(map[string]any{"titulo": "Portas do docker", "conteudo": "a porta 3307 é do banco no docker"}); res.IsError {
+		t.Errorf("completar uma nota que existe não passa pela conferência: %s", res.Content)
+	}
+	if res := run(map[string]any{"titulo": "Gato", "conteudo": "o gato dorme"}); res.IsError {
+		t.Errorf("assunto novo é gravado direto: %s", res.Content)
+	}
+
+	e.fail = errors.New("servidor fora do ar")
+	if res := run(map[string]any{"titulo": "Outra do docker", "conteudo": "docker porta"}); res.IsError {
+		t.Errorf("com o embedding fora do ar a nota é gravada sem conferência: %s", res.Content)
 	}
 }
 

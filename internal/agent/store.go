@@ -2,6 +2,8 @@ package agent
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -213,7 +215,37 @@ func ListSessions(sessionsDir string) ([]SessionMeta, error) {
 	return sessions, nil
 }
 
-// NewSessionID names a session after the moment it starts.
+// NewSessionID names a session after the moment it starts, plus a short
+// random suffix so two sessions opened in the same second do not collide.
 func NewSessionID(now time.Time) string {
-	return now.Format("2006-01-02-150405")
+	var suffix [2]byte
+	// crypto/rand.Read never returns an error.
+	_, _ = rand.Read(suffix[:])
+	return now.Format("2006-01-02-150405") + "-" + hex.EncodeToString(suffix[:])
+}
+
+// ReadTranscript returns every message an agent ever exchanged, in order,
+// including the ones a compaction later dropped from its working history.
+func ReadTranscript(path string) ([]provider.Message, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("abrindo a conversa %s: %w", path, err)
+	}
+	defer f.Close()
+
+	var messages []provider.Message
+	reader := bufio.NewReader(f)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			var rec record
+			if json.Unmarshal(line, &rec) == nil && rec.Type == "msg" && rec.Message != nil {
+				messages = append(messages, *rec.Message)
+			}
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return messages, nil
 }

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +73,55 @@ func TestStore_Load_IgnoresLineCutByCrash(t *testing.T) {
 	}
 	if len(history) != 1 || history[0].Text() != "inteira" {
 		t.Errorf("a linha cortada deveria ser ignorada: %+v", history)
+	}
+}
+
+func TestNewSessionID(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 24, 21, 18, 16, 0, time.UTC)
+	seen := make(map[string]bool)
+	for range 50 {
+		id := NewSessionID(now)
+		if !regexp.MustCompile(`^2026-11-24-211816-[0-9a-f]{4}$`).MatchString(id) {
+			t.Fatalf("id %q fora do formato data-hora-sufixo", id)
+		}
+		seen[id] = true
+	}
+	if len(seen) < 40 {
+		t.Errorf("50 sessões abertas no mesmo segundo deram só %d ids diferentes", len(seen))
+	}
+}
+
+func TestReadTranscript_KeepsWhatCompactionDropped(t *testing.T) {
+	t.Parallel()
+	store, err := OpenStore(t.TempDir(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"antes um", "antes dois"} {
+		if err := store.Append("host", provider.UserText(text)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Reset("host", []provider.Message{provider.UserText("resumo")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Append("host", provider.UserText("depois")); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := ReadTranscript(store.historyPath("host"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	for _, m := range messages {
+		texts = append(texts, m.Text())
+	}
+	if got := strings.Join(texts, "|"); got != "antes um|antes dois|depois" {
+		t.Errorf("transcrição = %q; quero tudo o que foi dito, sem o resumo da compactação", got)
+	}
+	if _, err := ReadTranscript(store.historyPath("ninguem")); err == nil {
+		t.Error("arquivo que não existe deveria dar erro")
 	}
 }
 

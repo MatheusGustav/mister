@@ -58,9 +58,17 @@ var gemma = model{
 // Thresholds are the similarity cuts that go with the model, measured in
 // Portuguese on 24/11/2026: the right note scores 0.52 or more, an unrelated
 // one 0.37 or less.
+//
+// Between two notes, the same subject written again scores 0.73 or more and
+// another subject 0.61 or less.
 func Thresholds() memory.Thresholds {
-	return memory.Thresholds{Entry: 0.45, Walk: 0.40}
+	return memory.Thresholds{Entry: 0.45, Walk: 0.40, Duplicate: 0.68}
 }
+
+// SessionThreshold is the similarity cut between a question and an excerpt of
+// a past session, measured the same day: the right excerpt scores 0.59 or
+// more, an unrelated one 0.45 or less.
+const SessionThreshold = 0.52
 
 // ErrNotInstalled means the managed server or its model is not on disk yet.
 var ErrNotInstalled = errors.New("o servidor de embedding local não está instalado: rode 'mister install'")

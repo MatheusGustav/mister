@@ -139,6 +139,15 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	if err != nil {
 		return err
 	}
+	past := memory.OpenSessions(home.SessionsDir(), local, embed.SessionThreshold, sessionID)
+	// Sessions closed since the last run are indexed in the background, so the
+	// first message does not wait for it.
+	var indexing sync.WaitGroup
+	indexing.Go(func() { _ = past.Sync(ctx) })
+	defer func() {
+		cancel()
+		indexing.Wait()
+	}()
 
 	rt, err := agent.NewRuntime(ctx, agent.Options{
 		Config:       cfg,
@@ -151,7 +160,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 		Project:      project,
 		OwnerRules:   ownerRules,
 		ProjectRules: projectRules,
-		Recall:       mem.RecallText,
+		Recall:       recallFrom(mem, past),
 		HostRole:     opts.role,
 		HostModel:    opts.model,
 		Hooks: agent.Hooks{
@@ -189,6 +198,22 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	}
 
 	return chatLoop(ctx, cancel, cmd.InOrStdin(), out, rt)
+}
+
+// recallFrom joins the two memories an agent receives by itself: the notes
+// and what was said in past sessions.
+func recallFrom(notes *memory.Store, past *memory.Sessions) agent.RecallFunc {
+	return func(ctx context.Context, text string, skip map[string]bool) (string, []string) {
+		noteText, names := notes.RecallText(ctx, text, skip)
+		pastText, keys := past.RecallText(ctx, text, skip)
+		switch {
+		case noteText == "":
+			return pastText, keys
+		case pastText == "":
+			return noteText, names
+		}
+		return noteText + "\n\n" + pastText, append(names, keys...)
+	}
 }
 
 // chatLoop reads lines and hands them to the host. Ctrl+C cancels the turn in
@@ -315,13 +340,7 @@ func pickSession(home config.Home, project string, opts chatOptions) (string, *a
 		}
 		return "", nil, fmt.Errorf("nenhuma sessão guardada para a pasta %s", project)
 	}
-	id := agent.NewSessionID(time.Now())
-	for _, s := range sessions {
-		if s.ID == id {
-			return "", nil, fmt.Errorf("já existe uma sessão %s; tente de novo em um segundo", id)
-		}
-	}
-	return id, nil, nil
+	return agent.NewSessionID(time.Now()), nil, nil
 }
 
 func readOptional(path string) (string, error) {

@@ -66,6 +66,7 @@ func (s *Store) Tools() []tool.Tool {
 	type writeInput struct {
 		Titulo   string `json:"titulo"`
 		Conteudo string `json:"conteudo"`
+		NotaNova bool   `json:"nota_nova"`
 	}
 	type searchInput struct {
 		Busca string `json:"busca"`
@@ -75,15 +76,25 @@ func (s *Store) Tools() []tool.Tool {
 			Name: "anotar_memoria",
 			Description: "Guarda um fato na memória de longo prazo, para reencontrar em outra sessão: uma pegadinha do ambiente, o que um projeto é, um macete que custou tempo. " +
 				"Anotar num título que já existe acrescenta ao fim da nota. Ligue assuntos relacionados com [[titulo-da-outra-nota]]. " +
+				"Se já existir uma nota muito parecida com outro título, a ferramenta não grava e mostra essa nota, para você completar a que existe. " +
 				"Não use para o que só vale nesta conversa.",
 			Schema: tool.Object([]string{"titulo", "conteudo"}, map[string]any{
-				"titulo":   tool.Str("assunto da nota, curto"),
-				"conteudo": tool.Str("o fato, em markdown"),
+				"titulo":    tool.Str("assunto da nota, curto"),
+				"conteudo":  tool.Str("o fato, em markdown"),
+				"nota_nova": map[string]any{"type": "boolean", "description": "true para gravar mesmo havendo uma nota parecida, quando o assunto é outro (opcional)"},
 			}),
-			Run: func(_ context.Context, _ *tool.Env, raw json.RawMessage) tool.Result {
+			Run: func(ctx context.Context, _ *tool.Env, raw json.RawMessage) tool.Result {
 				in, err := tool.Decode[writeInput](raw)
 				if err != nil {
 					return tool.Fail("%v", err)
+				}
+				if !in.NotaNova && !s.Exists(in.Titulo) && strings.TrimSpace(in.Conteudo) != "" {
+					// A failed check never blocks writing: the note matters more.
+					if similar, err := s.Similar(ctx, in.Titulo, in.Conteudo); err == nil && similar != nil {
+						return tool.Fail("não anotei: já existe a nota %q, muito parecida com esta. O que ela diz:\n\n%s\n\n"+
+							"Se o fato já está nela, não precisa anotar. Para completar essa nota, anote de novo com o título %q. "+
+							"Se o assunto é mesmo outro, repita com nota_nova: true.", similar.Name, similar.Body, similar.Name)
+					}
 				}
 				name, err := s.Write(in.Titulo, in.Conteudo)
 				if err != nil {

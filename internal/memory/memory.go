@@ -41,6 +41,9 @@ type Thresholds struct {
 	Entry float64
 	// Walk is the least similarity for a linked note to be followed.
 	Walk float64
+	// Duplicate is the least similarity, between two notes, for the second to
+	// be taken as the same subject written again.
+	Duplicate float64
 }
 
 type Store struct {
@@ -118,6 +121,57 @@ func (s *Store) Write(title, content string) (string, error) {
 		return "", fmt.Errorf("gravando a nota %s: %w", name, err)
 	}
 	return name, nil
+}
+
+// Exists reports whether there is a note with this title.
+func (s *Store) Exists(title string) bool {
+	_, err := os.Stat(s.path(title))
+	return err == nil
+}
+
+// Similar returns the existing note that says nearly the same as a note about
+// to be written under another title, or nil. Without an embedder, or with a
+// memory that cannot be searched, there is no check.
+func (s *Store) Similar(ctx context.Context, title, content string) (*Note, error) {
+	if s.embedder == nil {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx, err := s.sync(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(idx.Notes) == 0 {
+		return nil, nil
+	}
+	vectors, err := s.embedder.EmbedDocuments(ctx, []Document{{Title: Slug(title), Text: content}})
+	if err != nil {
+		return nil, fmt.Errorf("gerando o embedding da nota: %w", err)
+	}
+	if len(vectors) != 1 {
+		return nil, fmt.Errorf("o provedor de embedding devolveu %d vetores para 1 texto", len(vectors))
+	}
+	var best Note
+	for name, entry := range idx.Notes {
+		if name == Slug(title) {
+			continue
+		}
+		for _, section := range entry.Sections {
+			if score := cosine(vectors[0], section); score > best.Score {
+				best = Note{Name: name, Score: score}
+			}
+		}
+	}
+	if best.Name == "" || best.Score < s.thresholds.Duplicate {
+		return nil, nil
+	}
+	data, err := os.ReadFile(s.path(best.Name))
+	if err != nil {
+		return nil, nil
+	}
+	best.Body = strings.TrimSpace(string(data))
+	return &best, nil
 }
 
 // Read returns the whole text of a note.
