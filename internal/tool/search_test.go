@@ -25,7 +25,7 @@ func searchFixture(t *testing.T) *Env {
 func TestGrep(t *testing.T) {
 	t.Parallel()
 	env := searchFixture(t)
-	grep := find(t, SearchTools(), "buscar")
+	grep := find(t, SearchTools(""), "buscar")
 
 	tests := []struct {
 		name     string
@@ -128,7 +128,7 @@ func TestGrepWalking(t *testing.T) {
 func TestGlob(t *testing.T) {
 	t.Parallel()
 	env := searchFixture(t)
-	glob := find(t, SearchTools(), "glob")
+	glob := find(t, SearchTools(""), "glob")
 
 	tests := []struct {
 		name    string
@@ -182,5 +182,29 @@ func TestMatchPath(t *testing.T) {
 				t.Errorf("matchPath = %v, quero %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRipgrepPath_PrefersTheOneInstalledByTheMister(t *testing.T) {
+	own := filepath.Join(t.TempDir(), "rg")
+	if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ripgrepPath(own); got != own {
+		t.Errorf("ripgrepPath = %q, quero o instalado pelo Mister %q", got, own)
+	}
+
+	inPath := t.TempDir()
+	other := filepath.Join(inPath, "rg")
+	if err := os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", inPath)
+	if got := ripgrepPath(filepath.Join(t.TempDir(), "falta")); got != other {
+		t.Errorf("sem o do Mister, ripgrepPath = %q, quero o do PATH %q", got, other)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if got := ripgrepPath(""); got != "" {
+		t.Errorf("sem ripgrep nenhum, ripgrepPath = %q, quero vazio", got)
 	}
 }

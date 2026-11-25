@@ -67,7 +67,7 @@ func newSession(t *testing.T, cfg config.Config, host, threads func(n int, req p
 		t.Fatal(err)
 	}
 	registry := tool.NewRegistry()
-	tools := append(tool.FileTools(), tool.SearchTools()...)
+	tools := append(tool.FileTools(), tool.SearchTools("")...)
 	tools = append(tools, tool.ShellTools(tool.DefaultShellLimits())...)
 	tools = append(tools, tool.Tool{
 		Name:   WebSearchTool,

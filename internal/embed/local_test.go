@@ -317,7 +317,7 @@ func TestExtractTarGz_RefusesEntriesOutsideTheFolder(t *testing.T) {
 			if err := os.WriteFile(archive, tarGz(t, tt.entries, tt.links), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if err := extractTarGz(archive, dir); err == nil {
+			if err := ExtractTarGz(archive, dir); err == nil {
 				t.Error("deveria recusar a entrada")
 			}
 			if _, err := os.Stat(filepath.Join(base, "fora.txt")); err == nil {

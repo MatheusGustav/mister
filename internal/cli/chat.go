@@ -124,7 +124,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	}
 	mem := memory.Open(home.MemoryDir(), home.IndexFile(), local, embed.Thresholds())
 	registry := tool.NewRegistry()
-	tools := append(tool.FileTools(), tool.SearchTools()...)
+	tools := append(tool.FileTools(), tool.SearchTools(home.RipgrepFile())...)
 	tools = append(tools, tool.ShellTools(tool.DefaultShellLimits())...)
 	tools = append(tools, web.NewExa().Tool())
 	tools = append(tools, mem.Tools()...)

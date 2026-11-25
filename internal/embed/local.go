@@ -345,10 +345,10 @@ func (l *Local) Install(ctx context.Context, logf func(format string, args ...an
 	if _, err := os.Stat(l.serverPath()); err != nil {
 		archive := filepath.Join(l.Dir, "llama-server.tar.gz")
 		logf("baixando o servidor de embedding (llama.cpp)")
-		if err := download(ctx, l.Sources.ServerURL, l.Sources.ServerSHA256, archive, logf); err != nil {
+		if err := Download(ctx, l.Sources.ServerURL, l.Sources.ServerSHA256, archive, logf); err != nil {
 			return err
 		}
-		err := extractTarGz(archive, l.Dir)
+		err := ExtractTarGz(archive, l.Dir)
 		os.Remove(archive)
 		if err != nil {
 			return fmt.Errorf("extraindo o servidor de embedding: %w", err)
@@ -359,16 +359,16 @@ func (l *Local) Install(ctx context.Context, logf func(format string, args ...an
 	}
 	if _, err := os.Stat(l.modelPath()); err != nil {
 		logf("baixando o modelo de embedding (EmbeddingGemma 300M, cerca de 280 MB)")
-		if err := download(ctx, l.Sources.ModelURL, l.Sources.ModelSHA256, l.modelPath(), logf); err != nil {
+		if err := Download(ctx, l.Sources.ModelURL, l.Sources.ModelSHA256, l.modelPath(), logf); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// download saves a URL to dest through a partial file, and only keeps it when
+// Download saves a URL to dest through a partial file, and only keeps it when
 // the checksum matches.
-func download(ctx context.Context, url, wantSHA256, dest string, logf func(format string, args ...any)) error {
+func Download(ctx context.Context, url, wantSHA256, dest string, logf func(format string, args ...any)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("montando o download de %s: %w", url, err)
@@ -425,9 +425,9 @@ func (p *progressWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// extractTarGz unpacks an archive into dir, refusing entries that would land
+// ExtractTarGz unpacks an archive into dir, refusing entries that would land
 // outside it.
-func extractTarGz(archive, dir string) error {
+func ExtractTarGz(archive, dir string) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err

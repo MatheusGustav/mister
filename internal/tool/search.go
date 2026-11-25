@@ -27,12 +27,26 @@ const (
 // skippedDirs are never searched: version control and dependency trees.
 var skippedDirs = map[string]bool{".git": true, "node_modules": true, ".venv": true, "__pycache__": true}
 
-// SearchTools returns the content search and the glob tool.
-func SearchTools() []Tool {
-	return []Tool{grepTool(), globTool()}
+// SearchTools returns the content search and the glob tool. ownRipgrep is the
+// ripgrep 'mister install' keeps; when that file is not there the search uses
+// the one in PATH, and without any it walks the files itself.
+func SearchTools(ownRipgrep string) []Tool {
+	return []Tool{grepTool(ownRipgrep), globTool()}
 }
 
-func grepTool() Tool {
+func ripgrepPath(own string) string {
+	if own != "" {
+		if info, err := os.Stat(own); err == nil && !info.IsDir() {
+			return own
+		}
+	}
+	if found, err := exec.LookPath("rg"); err == nil {
+		return found
+	}
+	return ""
+}
+
+func grepTool(ownRipgrep string) Tool {
 	type input struct {
 		Padrao  string `json:"padrao"`
 		Caminho string `json:"caminho"`
@@ -73,7 +87,7 @@ func grepTool() Tool {
 			}
 
 			var lines []string
-			if rg, lookErr := exec.LookPath("rg"); lookErr == nil {
+			if rg := ripgrepPath(ownRipgrep); rg != "" {
 				lines, err = grepWithRipgrep(ctx, rg, in.Padrao, in.Glob, root)
 			} else {
 				lines, err = grepWalking(ctx, re, in.Glob, root)

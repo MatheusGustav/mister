@@ -247,6 +247,30 @@ func fakeSources(t *testing.T) embed.Sources {
 	}
 }
 
+func fakeRipgrep(t *testing.T) RipgrepSource {
+	t.Helper()
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	script := "#!/bin/sh\nexit 1\n"
+	for name, content := range map[string]string{"rg-teste/rg": script, "rg-teste/LEIAME": "sobra"} {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tw.Close()
+	gz.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive.Bytes())
+	}))
+	t.Cleanup(srv.Close)
+	h := sha256.Sum256(archive.Bytes())
+	return RipgrepSource{URL: srv.URL + "/rg.tar.gz", SHA256: hex.EncodeToString(h[:]), Binary: "rg-teste/rg"}
+}
+
 func TestInstall(t *testing.T) {
 	home, _ := isolate(t)
 	dest := filepath.Join(t.TempDir(), "bin")
@@ -254,10 +278,20 @@ func TestInstall(t *testing.T) {
 	t.Setenv(anthropic.APIKeyEnv, "")
 	deps := DefaultDeps()
 	deps.EmbeddingSources = fakeSources(t)
+	deps.RipgrepSource = fakeRipgrep(t)
 
 	out, _, err := run(t, deps, "", "install", "--dest", dest)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if info, err := os.Stat(home.RipgrepFile()); err != nil || info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("o ripgrep deveria estar instalado e executável em %s: %v", home.RipgrepFile(), err)
+	}
+	if left, _ := os.ReadDir(filepath.Dir(home.RipgrepFile())); len(left) != 1 {
+		t.Errorf("a pasta do ripgrep deveria ter só o rg, tem %d itens", len(left))
+	}
+	if !strings.Contains(out, "ripgrep da busca instalado em "+home.RipgrepFile()) {
+		t.Errorf("a saída deveria dizer onde o ripgrep ficou:\n%s", out)
 	}
 	for _, path := range []string{"llama-teste/llama-server", "modelo.gguf"} {
 		if _, err := os.Stat(filepath.Join(home.EmbeddingDir(), path)); err != nil {
@@ -298,7 +332,7 @@ func TestInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _, err = run(t, deps, "", "install", "--dest", dest)
-	if err != nil || !strings.Contains(out, "configuração mantida") || !strings.Contains(out, "já instalado") {
+	if err != nil || !strings.Contains(out, "configuração mantida") || !strings.Contains(out, "embedding da memória já instalado") || !strings.Contains(out, "ripgrep da busca já instalado") {
 		t.Errorf("segunda instalação: %q, %v", out, err)
 	}
 	if cfg, _ := home.Load(); cfg.MaxThreads != 7 {
@@ -311,6 +345,7 @@ func TestInstall_EmbeddingDownloadFails(t *testing.T) {
 	deps := DefaultDeps()
 	deps.EmbeddingSources = fakeSources(t)
 	deps.EmbeddingSources.ModelSHA256 = strings.Repeat("0", 64)
+	deps.RipgrepSource = fakeRipgrep(t)
 	dest := filepath.Join(t.TempDir(), "bin")
 
 	_, _, err := run(t, deps, "", "install", "--dest", dest)
@@ -323,7 +358,25 @@ func TestInstall_EmbeddingDownloadFails(t *testing.T) {
 	if _, statErr := os.Stat(home.ConfigFile()); statErr != nil {
 		t.Errorf("o config deveria estar criado mesmo assim: %v", statErr)
 	}
+}
 
+func TestInstall_RipgrepDownloadFails(t *testing.T) {
+	home, _ := isolate(t)
+	deps := DefaultDeps()
+	deps.EmbeddingSources = fakeSources(t)
+	deps.RipgrepSource = fakeRipgrep(t)
+	deps.RipgrepSource.SHA256 = strings.Repeat("0", 64)
+
+	_, _, err := run(t, deps, "", "install", "--dest", filepath.Join(t.TempDir(), "bin"))
+	if err == nil || !strings.Contains(err.Error(), "mas o ripgrep da busca não") {
+		t.Fatalf("erro = %v; quero dizer o que ficou instalado e o que não", err)
+	}
+	if _, statErr := os.Stat(home.RipgrepFile()); statErr == nil {
+		t.Error("um ripgrep que não confere com o checksum não deveria ficar instalado")
+	}
+	if left, _ := os.ReadDir(filepath.Dir(home.RipgrepFile())); len(left) != 0 {
+		t.Errorf("o download que falhou deixou %d itens para trás", len(left))
+	}
 }
 
 func TestShorten(t *testing.T) {

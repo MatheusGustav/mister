@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,7 +23,7 @@ func newInstallCommand(deps Deps) *cobra.Command {
 		Long: "Copia o binário em execução para a pasta de destino (padrão: ~/.local/bin),\n" +
 			"cria a pasta do Mister (~/.mister) com a configuração padrão, se ainda não existir,\n" +
 			"e baixa o servidor de embedding da memória (llama.cpp e o modelo EmbeddingGemma 300M,\n" +
-			"cerca de 300 MB).",
+			"cerca de 300 MB) e o ripgrep que a ferramenta de busca usa.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -60,16 +62,26 @@ func newInstallCommand(deps Deps) *cobra.Command {
 			}
 			fmt.Fprintf(out, "agentes próprios vão em %s (um arquivo .md por agente)\n", home.RolesDir())
 
+			logf := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
 			local := embed.NewLocal(home.EmbeddingDir())
 			local.Sources = deps.EmbeddingSources
 			if local.Installed() {
 				fmt.Fprintf(out, "servidor de embedding da memória já instalado em %s\n", home.EmbeddingDir())
 			} else {
-				logf := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
 				if err := local.Install(cmd.Context(), logf); err != nil {
 					return fmt.Errorf("o binário e a configuração foram instalados, mas o servidor de embedding da memória não: %w", err)
 				}
 				fmt.Fprintf(out, "servidor de embedding da memória instalado em %s\n", home.EmbeddingDir())
+			}
+
+			if _, err := os.Stat(home.RipgrepFile()); err == nil {
+				fmt.Fprintf(out, "ripgrep da busca já instalado em %s\n", home.RipgrepFile())
+			} else {
+				logf("baixando o ripgrep da busca")
+				if err := installRipgrep(cmd.Context(), home.RipgrepFile(), deps.RipgrepSource, logf); err != nil {
+					return fmt.Errorf("o binário, a configuração e o servidor de embedding foram instalados, mas o ripgrep da busca não: %w", err)
+				}
+				fmt.Fprintf(out, "ripgrep da busca instalado em %s\n", home.RipgrepFile())
 			}
 
 			if !inPath(dest) {
@@ -83,6 +95,53 @@ func newInstallCommand(deps Deps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&dest, "dest", "", "pasta onde o binário é instalado (padrão: ~/.local/bin)")
 	return cmd
+}
+
+// RipgrepSource pins the ripgrep 'mister install' downloads: exact file, by
+// checksum.
+type RipgrepSource struct {
+	URL    string
+	SHA256 string
+	// Binary is the path of the rg executable inside the archive.
+	Binary string
+}
+
+// DefaultRipgrepSource is ripgrep 15.1.0 for Linux x86_64, statically linked.
+func DefaultRipgrepSource() RipgrepSource {
+	return RipgrepSource{
+		URL:    "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
+		SHA256: "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
+		Binary: "ripgrep-15.1.0-x86_64-unknown-linux-musl/rg",
+	}
+}
+
+// installRipgrep downloads the archive, checks it against the pinned checksum
+// and leaves only the rg executable at target.
+func installRipgrep(ctx context.Context, target string, src RipgrepSource, logf func(format string, args ...any)) error {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return fmt.Errorf("o ripgrep só é baixado para linux x86_64 (aqui é %s/%s)", runtime.GOOS, runtime.GOARCH)
+	}
+	dir := filepath.Dir(target)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("criando %s: %w", dir, err)
+	}
+	tmp, err := os.MkdirTemp(dir, ".rg-*")
+	if err != nil {
+		return fmt.Errorf("criando a pasta do download em %s: %w", dir, err)
+	}
+	defer os.RemoveAll(tmp)
+	archive := filepath.Join(tmp, "rg.tar.gz")
+	if err := embed.Download(ctx, src.URL, src.SHA256, archive, logf); err != nil {
+		return err
+	}
+	unpacked := filepath.Join(tmp, "conteudo")
+	if err := embed.ExtractTarGz(archive, unpacked); err != nil {
+		return fmt.Errorf("extraindo o ripgrep: %w", err)
+	}
+	if err := os.Rename(filepath.Join(unpacked, src.Binary), target); err != nil {
+		return fmt.Errorf("o arquivo baixado não trouxe o rg em %s: %w", src.Binary, err)
+	}
+	return nil
 }
 
 // installBinary copies the running executable into dir, replacing an older

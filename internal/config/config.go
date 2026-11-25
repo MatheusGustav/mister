@@ -84,6 +84,9 @@ func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "AGENTS.md") }
 func (h Home) EmbeddingDir() string { return filepath.Join(h.Dir, "embedding") }
 func (h Home) IndexFile() string    { return filepath.Join(h.Dir, "indice.json") }
 
+// RipgrepFile is the ripgrep 'mister install' downloads for the search tool.
+func (h Home) RipgrepFile() string { return filepath.Join(h.Dir, "bin", "rg") }
+
 // Ensure creates the home directory and its subfolders.
 func (h Home) Ensure() error {
 	for _, dir := range []string{h.Dir, h.RolesDir(), h.SessionsDir(), h.MemoryDir()} {

@@ -18,11 +18,15 @@ type Deps struct {
 	// EmbeddingSources is where 'mister install' downloads the local
 	// embedding server and its model from.
 	EmbeddingSources embed.Sources
+	// RipgrepSource is where 'mister install' downloads the ripgrep of the
+	// search tool from.
+	RipgrepSource RipgrepSource
 }
 
 func DefaultDeps() Deps {
 	return Deps{
 		EmbeddingSources: embed.DefaultSources(),
+		RipgrepSource:    DefaultRipgrepSource(),
 		NewProvider: func() (provider.Provider, error) {
 			client, err := anthropic.New()
 			if err != nil {
