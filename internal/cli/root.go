@@ -4,6 +4,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/provider"
 	"github.com/MatheusGustav/mister/internal/provider/anthropic"
 )
@@ -14,16 +15,22 @@ var Version = "dev"
 // Deps are the pieces a test replaces.
 type Deps struct {
 	NewProvider func() (provider.Provider, error)
+	// EmbeddingSources is where 'mister install' downloads the local
+	// embedding server and its model from.
+	EmbeddingSources embed.Sources
 }
 
 func DefaultDeps() Deps {
-	return Deps{NewProvider: func() (provider.Provider, error) {
-		client, err := anthropic.New()
-		if err != nil {
-			return nil, err
-		}
-		return client, nil
-	}}
+	return Deps{
+		EmbeddingSources: embed.DefaultSources(),
+		NewProvider: func() (provider.Provider, error) {
+			client, err := anthropic.New()
+			if err != nil {
+				return nil, err
+			}
+			return client, nil
+		},
+	}
 }
 
 // NewRootCommand builds a fresh command tree.
@@ -47,7 +54,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.Flags().StringVar(&opts.role, "papel", "", "papel do agente principal (padrão: host)")
 	root.MarkFlagsMutuallyExclusive("continuar", "sessao")
 
-	root.AddCommand(newInstallCommand(), newRolesCommand(), newSessionsCommand(), newVersionCommand())
+	root.AddCommand(newInstallCommand(deps), newRolesCommand(), newSessionsCommand(), newVersionCommand())
 	return root
 }
 

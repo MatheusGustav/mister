@@ -114,8 +114,15 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 		return err
 	}
 
-	// The embedding provider is not chosen yet: notes are written, not searched.
-	mem := memory.Open(home.MemoryDir(), filepath.Join(home.Dir, "indice.json"), nil, memory.Thresholds{Entry: 0.35, Walk: 0.30})
+	embedder, local := newEmbedder(home, cfg, deps.EmbeddingSources)
+	if local != nil {
+		defer local.Close()
+		if !local.Installed() {
+			out.status("memória: o servidor de embedding local não está instalado; as notas são gravadas mas não buscadas. Rode 'mister install'.")
+		}
+	}
+	mem := memory.Open(home.MemoryDir(), home.IndexFile(), embedder,
+		memory.Thresholds{Entry: cfg.Embedding.EntryThreshold, Walk: cfg.Embedding.WalkThreshold})
 	registry := tool.NewRegistry()
 	tools := append(tool.FileTools(), tool.SearchTools()...)
 	tools = append(tools, tool.ShellTools(tool.DefaultShellLimits())...)

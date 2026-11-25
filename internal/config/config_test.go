@@ -18,7 +18,8 @@ func TestHome_Load(t *testing.T) {
 		{
 			name: "sem arquivo vale o padrão",
 			check: func(t *testing.T, cfg Config) {
-				if cfg.MaxThreads != 3 || cfg.HeavyLimit != 1 || cfg.WebSearch != "auto" || cfg.Model("opus") != "claude-opus-5-5" {
+				if cfg.MaxThreads != 3 || cfg.HeavyLimit != 1 || cfg.WebSearch != "auto" || cfg.Model("opus") != "claude-opus-5-5" ||
+					cfg.Embedding.URL != "" || cfg.Embedding.Model != "embeddinggemma-300m" {
 					t.Errorf("padrão inesperado: %+v", cfg)
 				}
 			},
@@ -43,6 +44,20 @@ func TestHome_Load(t *testing.T) {
 				t.Errorf("modelos: %v", cfg.Models)
 			}
 		}},
+		{
+			name: "embedding: o arquivo troca só o que traz",
+			file: `{"embedding": {"url": "http://localhost:11434/v1", "modelo": "outro"}}`,
+			check: func(t *testing.T, cfg Config) {
+				e := cfg.Embedding
+				if e.URL != "http://localhost:11434/v1" || e.Model != "outro" {
+					t.Errorf("url e modelo do arquivo não valeram: %+v", e)
+				}
+				if e.QueryPrefix != "task: search result | query: " || e.EntryThreshold != 0.45 || e.WalkThreshold != 0.40 {
+					t.Errorf("prefixos e limiares deveriam ficar no padrão: %+v", e)
+				}
+			},
+		},
+		{name: "limiar fora da faixa", file: `{"embedding": {"limiar_entrada": 1.5}}`, wantErr: "limiar_entrada"},
 		{name: "json inválido", file: `{`, wantErr: "JSON válido"},
 		{name: "limite zero", file: `{"limite_pesado": 0}`, wantErr: "limite_pesado"},
 		{name: "pesquisa inválida", file: `{"pesquisa_web": "google"}`, wantErr: "pesquisa_web"},

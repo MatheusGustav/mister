@@ -12,13 +12,15 @@ import (
 	"github.com/MatheusGustav/mister/internal/config"
 )
 
-func newInstallCommand() *cobra.Command {
+func newInstallCommand(deps Deps) *cobra.Command {
 	var dest string
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Instala este binário e cria a pasta do Mister",
-		Long: "Copia o binário em execução para a pasta de destino (padrão: ~/.local/bin)\n" +
-			"e cria a pasta do Mister (~/.mister) com a configuração padrão, se ainda não existir.",
+		Long: "Copia o binário em execução para a pasta de destino (padrão: ~/.local/bin),\n" +
+			"cria a pasta do Mister (~/.mister) com a configuração padrão, se ainda não existir,\n" +
+			"e baixa o servidor de embedding da memória (llama.cpp e o modelo EmbeddingGemma 300M,\n" +
+			"cerca de 300 MB), a não ser que o config aponte 'embedding.url' para outro servidor.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -56,6 +58,24 @@ func newInstallCommand() *cobra.Command {
 				fmt.Fprintf(out, "configuração mantida em %s\n", home.ConfigFile())
 			}
 			fmt.Fprintf(out, "papéis próprios vão em %s (um arquivo .md por papel)\n", home.RolesDir())
+
+			cfg, err := home.Load()
+			if err != nil {
+				return err
+			}
+			if _, local := newEmbedder(home, cfg, deps.EmbeddingSources); local != nil {
+				if local.Installed() {
+					fmt.Fprintf(out, "servidor de embedding da memória já instalado em %s\n", home.EmbeddingDir())
+				} else {
+					logf := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
+					if err := local.Install(cmd.Context(), logf); err != nil {
+						return fmt.Errorf("o binário e a configuração foram instalados, mas o servidor de embedding da memória não: %w", err)
+					}
+					fmt.Fprintf(out, "servidor de embedding da memória instalado em %s\n", home.EmbeddingDir())
+				}
+			} else {
+				fmt.Fprintf(out, "memória usando o servidor de embedding em %s\n", cfg.Embedding.URL)
+			}
 
 			if !inPath(dest) {
 				fmt.Fprintf(out, "atenção: %s não está no PATH; adicione para chamar 'mister' de qualquer pasta\n", dest)

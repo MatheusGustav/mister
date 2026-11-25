@@ -32,6 +32,27 @@ type Config struct {
 	WebSearch string `json:"pesquisa_web"`
 	// WebSearchMaxUses limits native searches per model answer.
 	WebSearchMaxUses int `json:"pesquisa_web_max_usos"`
+	// Embedding is the provider the memory searches with.
+	Embedding Embedding `json:"embedding"`
+}
+
+// Embedding configures the embedding provider. With an empty URL the Mister
+// runs its own local server (installed by 'mister install'); with a URL it
+// talks to any server in the OpenAI /v1/embeddings format.
+type Embedding struct {
+	// URL is the API root, for example "http://localhost:11434/v1".
+	URL   string `json:"url"`
+	Model string `json:"modelo"`
+	// KeyEnv names the environment variable with the API key, when one is needed.
+	KeyEnv string `json:"chave_env"`
+	// QueryPrefix and NotePrefix are the task prefixes of the model; "{titulo}"
+	// in NotePrefix becomes the title of the note.
+	QueryPrefix string `json:"prefixo_busca"`
+	NotePrefix  string `json:"prefixo_nota"`
+	// EntryThreshold and WalkThreshold are the least similarity for a note to
+	// be recalled and for a linked note to be followed. They depend on the model.
+	EntryThreshold float64 `json:"limiar_entrada"`
+	WalkThreshold  float64 `json:"limiar_caminhada"`
 }
 
 func Default() Config {
@@ -49,6 +70,16 @@ func Default() Config {
 		MaxIterations:    200,
 		WebSearch:        "auto",
 		WebSearchMaxUses: 5,
+		// Prefixes and thresholds of EmbeddingGemma 300M, measured in Portuguese
+		// on 24/11/2026: the right note scores 0.52 or more, an unrelated one
+		// 0.37 or less.
+		Embedding: Embedding{
+			Model:          "embeddinggemma-300m",
+			QueryPrefix:    "task: search result | query: ",
+			NotePrefix:     "title: {titulo} | text: ",
+			EntryThreshold: 0.45,
+			WalkThreshold:  0.40,
+		},
 	}
 }
 
@@ -76,11 +107,13 @@ func ResolveHome() (Home, error) {
 	return Home{Dir: filepath.Join(user, ".mister")}, nil
 }
 
-func (h Home) ConfigFile() string  { return filepath.Join(h.Dir, "config.json") }
-func (h Home) RolesDir() string    { return filepath.Join(h.Dir, "papeis") }
-func (h Home) SessionsDir() string { return filepath.Join(h.Dir, "sessoes") }
-func (h Home) MemoryDir() string   { return filepath.Join(h.Dir, "memoria") }
-func (h Home) RulesFile() string   { return filepath.Join(h.Dir, "MISTER.md") }
+func (h Home) ConfigFile() string   { return filepath.Join(h.Dir, "config.json") }
+func (h Home) RolesDir() string     { return filepath.Join(h.Dir, "papeis") }
+func (h Home) SessionsDir() string  { return filepath.Join(h.Dir, "sessoes") }
+func (h Home) MemoryDir() string    { return filepath.Join(h.Dir, "memoria") }
+func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "MISTER.md") }
+func (h Home) EmbeddingDir() string { return filepath.Join(h.Dir, "embedding") }
+func (h Home) IndexFile() string    { return filepath.Join(h.Dir, "indice.json") }
 
 // Ensure creates the home directory and its subfolders.
 func (h Home) Ensure() error {
@@ -129,6 +162,10 @@ func (c Config) validate() error {
 		return fmt.Errorf("config: pesquisa_web %q inválido; use \"auto\" ou \"exa\"", c.WebSearch)
 	case c.WebSearchMaxUses < 1:
 		return errors.New("config: pesquisa_web_max_usos precisa ser 1 ou mais")
+	case c.Embedding.Model == "":
+		return errors.New("config: embedding.modelo não pode ficar vazio")
+	case c.Embedding.EntryThreshold <= 0 || c.Embedding.EntryThreshold > 1 || c.Embedding.WalkThreshold <= 0 || c.Embedding.WalkThreshold > 1:
+		return errors.New("config: embedding.limiar_entrada e embedding.limiar_caminhada precisam ficar entre 0 e 1")
 	}
 	return nil
 }

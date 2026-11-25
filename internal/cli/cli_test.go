@@ -1,9 +1,15 @@
 package cli
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +17,7 @@ import (
 
 	"github.com/MatheusGustav/mister/internal/agent"
 	"github.com/MatheusGustav/mister/internal/config"
+	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/provider"
 	"github.com/MatheusGustav/mister/internal/provider/anthropic"
 )
@@ -112,7 +119,7 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 	if stdout != "resposta 1\nresposta 2\n" {
 		t.Errorf("a saída padrão deveria trazer só as respostas: %q", stdout)
 	}
-	for _, want := range []string{"sessão ", "host [host, claude-opus-5-5, esforço high]", "fila de comandos pesados: 0 rodando, 0 esperando (limite 1)", "processo: heap"} {
+	for _, want := range []string{"sessão ", "o servidor de embedding local não está instalado", "host [host, claude-opus-5-5, esforço high]", "fila de comandos pesados: 0 rodando, 0 esperando (limite 1)", "processo: heap"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("o terminal deveria mostrar %q:\n%s", want, stderr)
 		}
@@ -205,15 +212,60 @@ func TestRoles_ListsNativeAndCustom(t *testing.T) {
 	_ = home
 }
 
+// fakeSources serves a tiny archive and a tiny model in place of the real
+// downloads of the embedding server.
+func fakeSources(t *testing.T) embed.Sources {
+	t.Helper()
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	script := "#!/bin/sh\nexit 1\n"
+	if err := tw.WriteHeader(&tar.Header{Name: "llama-teste/llama-server", Mode: 0o755, Size: int64(len(script)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(script)); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gz.Close()
+	model := []byte("pesos de teste")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/modelo.gguf" {
+			_, _ = w.Write(model)
+			return
+		}
+		_, _ = w.Write(archive.Bytes())
+	}))
+	t.Cleanup(srv.Close)
+	sum := func(data []byte) string {
+		h := sha256.Sum256(data)
+		return hex.EncodeToString(h[:])
+	}
+	return embed.Sources{
+		ServerURL: srv.URL + "/servidor.tar.gz", ServerSHA256: sum(archive.Bytes()), ServerDir: "llama-teste",
+		ModelURL: srv.URL + "/modelo.gguf", ModelSHA256: sum(model), ModelFile: "modelo.gguf",
+	}
+}
+
 func TestInstall(t *testing.T) {
 	home, _ := isolate(t)
 	dest := filepath.Join(t.TempDir(), "bin")
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv(anthropic.APIKeyEnv, "")
+	deps := DefaultDeps()
+	deps.EmbeddingSources = fakeSources(t)
 
-	out, _, err := run(t, DefaultDeps(), "", "install", "--destino", dest)
+	out, _, err := run(t, deps, "", "install", "--destino", dest)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, path := range []string{"llama-teste/llama-server", "modelo.gguf"} {
+		if _, err := os.Stat(filepath.Join(home.EmbeddingDir(), path)); err != nil {
+			t.Errorf("faltou instalar %s do servidor de embedding: %v", path, err)
+		}
+	}
+	if !strings.Contains(out, "servidor de embedding da memória instalado em "+home.EmbeddingDir()) {
+		t.Errorf("a saída deveria dizer onde o servidor de embedding ficou:\n%s", out)
 	}
 	target := filepath.Join(dest, "mister")
 	info, err := os.Stat(target)
@@ -245,12 +297,46 @@ func TestInstall(t *testing.T) {
 	if err := os.WriteFile(home.ConfigFile(), []byte(`{"max_threads": 7}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, DefaultDeps(), "", "install", "--destino", dest)
-	if err != nil || !strings.Contains(out, "configuração mantida") {
+	out, _, err = run(t, deps, "", "install", "--destino", dest)
+	if err != nil || !strings.Contains(out, "configuração mantida") || !strings.Contains(out, "já instalado") {
 		t.Errorf("segunda instalação: %q, %v", out, err)
 	}
 	if cfg, _ := home.Load(); cfg.MaxThreads != 7 {
 		t.Errorf("a instalação alterou o config do usuário: %d", cfg.MaxThreads)
+	}
+
+	// With another embedding server in the config, nothing is downloaded.
+	if err := os.RemoveAll(home.EmbeddingDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(home.ConfigFile(), []byte(`{"embedding": {"url": "http://localhost:11434/v1", "modelo": "outro"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err = run(t, deps, "", "install", "--destino", dest)
+	if err != nil || !strings.Contains(out, "memória usando o servidor de embedding em http://localhost:11434/v1") {
+		t.Errorf("instalação com servidor próprio: %q, %v", out, err)
+	}
+	if _, err := os.Stat(home.EmbeddingDir()); err == nil {
+		t.Error("com 'embedding.url' no config, o servidor local não deveria ser baixado")
+	}
+}
+
+func TestInstall_EmbeddingDownloadFails(t *testing.T) {
+	home, _ := isolate(t)
+	deps := DefaultDeps()
+	deps.EmbeddingSources = fakeSources(t)
+	deps.EmbeddingSources.ModelSHA256 = strings.Repeat("0", 64)
+	dest := filepath.Join(t.TempDir(), "bin")
+
+	_, _, err := run(t, deps, "", "install", "--destino", dest)
+	if err == nil || !strings.Contains(err.Error(), "o binário e a configuração foram instalados") {
+		t.Fatalf("erro = %v; quero dizer o que ficou instalado e o que não", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dest, "mister")); statErr != nil {
+		t.Errorf("o binário deveria estar instalado mesmo assim: %v", statErr)
+	}
+	if _, statErr := os.Stat(home.ConfigFile()); statErr != nil {
+		t.Errorf("o config deveria estar criado mesmo assim: %v", statErr)
 	}
 
 }
