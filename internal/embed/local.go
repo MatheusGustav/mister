@@ -66,9 +66,13 @@ func Thresholds() memory.Thresholds {
 }
 
 // SessionThreshold is the similarity cut between a question and an excerpt of
-// a past session, measured the same day: the right excerpt scores 0.59 or
-// more, an unrelated one 0.45 or less.
-const SessionThreshold = 0.52
+// a past session (request and answer together), measured the same day on two
+// sets: the right excerpt scores 0.59 or more, an unrelated one 0.50 or less.
+//
+// Comparing with the answer alone was measured too and is worse: right answers
+// drop to 0.52-0.56 while unrelated ones reach 0.51, and a short answer that
+// depends on its question ("3307.") is no longer found.
+const SessionThreshold = 0.55
 
 // ErrNotInstalled means the managed server or its model is not on disk yet.
 var ErrNotInstalled = errors.New("o servidor de embedding local não está instalado: rode 'mister install'")
