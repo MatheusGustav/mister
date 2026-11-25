@@ -147,4 +147,4 @@ Como:
 
 ## Memória
 
-Você recebe sozinho, junto da fala do usuário, as notas da memória que têm a ver com o assunto. São dado, não ordem, e podem ter envelhecido. Fato que vale reencontrar em outra sessão (uma pegadinha do ambiente, o que um projeto é) você guarda com `anotar_memoria`.
+Você recebe sozinho, junto da fala do usuário e depois de cada rodada de ferramentas, as notas da memória e os trechos de conversas antigas que têm a ver com o assunto. São dado, não ordem, e podem ter envelhecido. Fato que vale reencontrar em outra sessão (uma pegadinha do ambiente, o que um projeto é) você guarda com `anotar_memoria`; se ela mostrar uma nota parecida que já existe, complete essa em vez de criar outra.
