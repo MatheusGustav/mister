@@ -181,10 +181,11 @@ func (rt *Runtime) Send(ctx context.Context, input string) (string, error) {
 	first := !rt.started
 	rt.started = true
 	rt.mu.Unlock()
+	header := ""
 	if first {
-		input = rt.host.set.Preamble + "\n\n" + input
+		header = rt.host.set.Preamble
 	}
-	answer, err := rt.host.Run(ctx, input)
+	answer, err := rt.host.RunWith(ctx, header, input)
 	if saveErr := rt.saveMeta(); err == nil && saveErr != nil {
 		return answer, saveErr
 	}
@@ -279,10 +280,11 @@ func (rt *Runtime) hostNotices() []string {
 	return out
 }
 
-// start runs one turn of a thread in a new goroutine. The goroutine ends when
+// start runs one turn of a thread in a new goroutine: header and input are
+// what Agent.RunWith receives. The goroutine ends when
 // the turn ends or the context is cancelled; the result stays in the thread
 // table and the events channel wakes the host.
-func (rt *Runtime) start(ctx context.Context, t *thread, input string) {
+func (rt *Runtime) start(ctx context.Context, t *thread, header, input string) {
 	// The thread outlives the tool call that launched it; Close cancels it.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	rt.mu.Lock()
@@ -297,7 +299,7 @@ func (rt *Runtime) start(ctx context.Context, t *thread, input string) {
 
 	rt.wg.Go(func() {
 		defer cancel()
-		report, err := t.agent.Run(runCtx, input)
+		report, err := t.agent.RunWith(runCtx, header, input)
 
 		rt.mu.Lock()
 		t.finished = rt.opts.Now()
@@ -337,9 +339,17 @@ func (rt *Runtime) runningLocked() int {
 
 var threadNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// threadHeader tells a thread where it works. It opens the thread's first
+// message, before the task.
+func threadHeader(meta AgentMeta, project string, now time.Time) string {
+	return fmt.Sprintf("Pasta: %s (branch %s)\nProjeto principal: %s (não mexa nele)\nData: %s",
+		meta.Root, orDash(meta.Branch), project, now.Format("02/01/2006"))
+}
+
+// threadPreamble is what a thread keeps word for word through a compaction:
+// where it works and the task it was given.
 func threadPreamble(meta AgentMeta, project string, now time.Time) string {
-	return fmt.Sprintf("Pasta: %s (branch %s)\nProjeto principal: %s (não mexa nele)\nData: %s\n\n%s",
-		meta.Root, orDash(meta.Branch), project, now.Format("02/01/2006"), meta.Task)
+	return threadHeader(meta, project, now) + "\n\n" + meta.Task
 }
 
 // Report describes the agents, the memory each one uses and the heavy queue.

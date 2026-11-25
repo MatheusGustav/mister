@@ -480,9 +480,18 @@ func TestRuntime_HostIsToldAboutThreadFinishedMeanwhile(t *testing.T) {
 			hostReqs = append(hostReqs, req)
 		}
 	}
-	last := lastMessage(hostReqs[len(hostReqs)-1])
-	if !strings.Contains(last, "[aviso] o thread solto terminou") {
-		t.Errorf("o host deveria ser avisado do thread que terminou:\n%s", last)
+	// The thread may finish before or after the host's first turn ends: either
+	// way the host hears about it once, in the next message it receives.
+	notices := 0
+	for _, msg := range hostReqs[len(hostReqs)-1].Messages {
+		for _, b := range msg.Blocks {
+			if strings.Contains(b.Text, "[aviso] o thread solto terminou") {
+				notices++
+			}
+		}
+	}
+	if notices != 1 {
+		t.Errorf("o host deveria ser avisado uma vez do thread que terminou, foi %d", notices)
 	}
 	if !strings.Contains(s.rt.Report(), "relatório ainda não lido") {
 		t.Errorf("o relatório de agentes deveria marcar o que falta ler:\n%s", s.rt.Report())

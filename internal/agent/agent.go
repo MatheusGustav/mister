@@ -173,7 +173,18 @@ func (a *Agent) recordChildMem(peakKB int64) {
 // Run takes one input (the user's message, a task, a correction) and loops
 // until the model answers without asking for tools. It returns that answer.
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
-	blocks := []provider.Block{{Type: provider.BlockText, Text: input}}
+	return a.RunWith(ctx, "", input)
+}
+
+// RunWith is Run with a header placed before the input (where the agent is
+// working, the date). The memory is searched with the input alone, so the
+// header does not blur the subject.
+func (a *Agent) RunWith(ctx context.Context, header, input string) (string, error) {
+	var blocks []provider.Block
+	if header != "" {
+		blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: header + "\n\n"})
+	}
+	blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: input})
 	if a.recall != nil {
 		if notes := a.recall(ctx, input); notes != "" {
 			blocks = append(blocks, provider.Block{Type: provider.BlockText, Text: notes})

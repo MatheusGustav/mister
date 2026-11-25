@@ -108,8 +108,7 @@ func (rt *Runtime) delegateTool() tool.Tool {
 
 			meta := AgentMeta{ID: in.Nome, Role: r.Name, Model: rt.opts.Config.Model(in.Modelo), Effort: in.Esforco,
 				Root: path, Branch: branch, Task: strings.TrimSpace(in.Tarefa), Status: StatusRunning}
-			preamble := threadPreamble(meta, rt.opts.Project, rt.opts.Now())
-			a, err := rt.newAgent(meta, r, preamble, nil)
+			a, err := rt.newAgent(meta, r, threadPreamble(meta, rt.opts.Project, rt.opts.Now()), nil)
 			if err != nil {
 				return tool.Fail("a worktree foi criada em %s, mas o thread não subiu: %v", path, err)
 			}
@@ -121,7 +120,7 @@ func (rt *Runtime) delegateTool() tool.Tool {
 			// The host reviews the diff of the worktree, so it may read it.
 			env.Workspace.AllowRead(path)
 
-			rt.start(ctx, t, preamble)
+			rt.start(ctx, t, threadHeader(meta, rt.opts.Project, rt.opts.Now()), meta.Task)
 			if err := rt.saveMeta(); err != nil {
 				return tool.Fail("o thread %s está rodando, mas a sessão não foi gravada: %v", in.Nome, err)
 			}
@@ -251,7 +250,7 @@ func (rt *Runtime) continueTool() tool.Tool {
 			case running >= rt.opts.Config.MaxThreads:
 				return tool.Fail("já há %d threads rodando, que é o limite desta máquina. Espere um terminar.", running)
 			}
-			rt.start(ctx, t, in.Mensagem)
+			rt.start(ctx, t, "", in.Mensagem)
 			if err := rt.saveMeta(); err != nil {
 				return tool.Fail("o thread %s voltou a rodar, mas a sessão não foi gravada: %v", in.Nome, err)
 			}

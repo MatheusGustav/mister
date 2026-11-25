@@ -363,6 +363,29 @@ func TestAgent_Run_AttachesNoticesAndRecall(t *testing.T) {
 	}
 }
 
+func TestAgent_RunWith_SearchesMemoryWithTheInputAlone(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, Settings{}, func(int, provider.Request) (*provider.Response, error) { return say("ok"), nil })
+	var searched string
+	h.agent.recall = func(_ context.Context, text string) string {
+		searched = text
+		return "[memória] nota"
+	}
+	if _, err := h.agent.RunWith(context.Background(), "Projeto: /x\nData: 24/11/2026", "em qual porta roda o banco?"); err != nil {
+		t.Fatal(err)
+	}
+	if searched != "em qual porta roda o banco?" {
+		t.Errorf("a memória foi buscada com %q; o cabeçalho não pode entrar na busca", searched)
+	}
+	msg := h.provider.request(0).Messages[0]
+	if got := msg.Text(); got != "Projeto: /x\nData: 24/11/2026\n\nem qual porta roda o banco?[memória] nota" {
+		t.Errorf("mensagem enviada = %q", got)
+	}
+	if len(msg.Blocks) != 3 {
+		t.Errorf("quero 3 blocos (cabeçalho, pergunta, memória), veio %d", len(msg.Blocks))
+	}
+}
+
 func TestAgent_Restore_ClosesDanglingToolCalls(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, Settings{}, func(int, provider.Request) (*provider.Response, error) { return say("retomei"), nil })
