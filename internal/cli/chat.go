@@ -97,7 +97,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	if err != nil {
 		return fmt.Errorf("descobrindo a pasta atual: %w", err)
 	}
-	roles, err := role.Load(home.RolesDir(), filepath.Join(project, ".mister", "papeis"))
+	roles, err := role.Load(home.RolesDir(), filepath.Join(project, ".mister", "agentes"))
 	if err != nil {
 		return err
 	}

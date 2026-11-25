@@ -27,7 +27,7 @@ const (
 // AgentMeta is what the session file keeps about an agent.
 type AgentMeta struct {
 	ID     string `json:"id"`
-	Role   string `json:"papel"`
+	Role   string `json:"agente"`
 	Model  string `json:"modelo"`
 	Effort string `json:"esforco,omitempty"`
 	// Root is the directory the agent works in.

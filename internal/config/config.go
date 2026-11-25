@@ -108,7 +108,7 @@ func ResolveHome() (Home, error) {
 }
 
 func (h Home) ConfigFile() string   { return filepath.Join(h.Dir, "config.json") }
-func (h Home) RolesDir() string     { return filepath.Join(h.Dir, "papeis") }
+func (h Home) RolesDir() string     { return filepath.Join(h.Dir, "agentes") }
 func (h Home) SessionsDir() string  { return filepath.Join(h.Dir, "sessoes") }
 func (h Home) MemoryDir() string    { return filepath.Join(h.Dir, "memoria") }
 func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "MISTER.md") }

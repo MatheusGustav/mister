@@ -206,7 +206,7 @@ func TestRuntime_DelegateRunsThreadInItsOwnWorktree(t *testing.T) {
 	}
 	for _, req := range []provider.Request{hostReq, threadReq} {
 		if !strings.Contains(req.System, "regra do projeto: testes sempre") {
-			t.Error("as regras do projeto deveriam estar nas instruções dos dois papéis")
+			t.Error("as regras do projeto deveriam estar nas instruções dos dois agentes")
 		}
 	}
 	if !strings.Contains(hostReq.Messages[0].Text(), "Projeto: "+s.project) {
@@ -324,7 +324,7 @@ func TestRuntime_DelegateValidation(t *testing.T) {
 					toolUse{id: "2", name: "delegar", input: map[string]any{"nome": "primeiro", "tarefa": "x"}},
 					toolUse{id: "3", name: "delegar", input: map[string]any{"nome": "Nome Ruim", "tarefa": "x"}},
 					toolUse{id: "4", name: "delegar", input: map[string]any{"nome": "vazio", "tarefa": " "}},
-					toolUse{id: "5", name: "delegar", input: map[string]any{"nome": "papel", "tarefa": "x", "papel": "inexistente"}},
+					toolUse{id: "5", name: "delegar", input: map[string]any{"nome": "outro", "tarefa": "x", "agente": "inexistente"}},
 					toolUse{id: "6", name: "delegar", input: map[string]any{"nome": "esforco", "tarefa": "x", "esforco": "turbo"}},
 					toolUse{id: "7", name: "continuar_thread", input: map[string]any{"nome": "primeiro", "mensagem": "oi"}},
 					toolUse{id: "8", name: "continuar_thread", input: map[string]any{"nome": "ninguem", "mensagem": "oi"}},
@@ -429,12 +429,12 @@ func TestRuntime_ThreadsOfTheSameRoleShareThePrefix(t *testing.T) {
 	}
 	a, b := threads[0], threads[1]
 	if a.System != b.System || a.Model != b.Model || a.Effort != b.Effort {
-		t.Error("threads do mesmo papel deveriam ter as mesmas instruções, modelo e esforço")
+		t.Error("threads do mesmo agente deveriam ter as mesmas instruções, modelo e esforço")
 	}
 	aTools, _ := json.Marshal(a.Tools)
 	bTools, _ := json.Marshal(b.Tools)
 	if string(aTools) != string(bTools) {
-		t.Error("threads do mesmo papel deveriam ter as mesmas definições de ferramenta, na mesma ordem")
+		t.Error("threads do mesmo agente deveriam ter as mesmas definições de ferramenta, na mesma ordem")
 	}
 	if strings.Contains(a.System, "tarefa um") || strings.Contains(a.System, "-wt-") {
 		t.Error("o que é de cada thread (tarefa, pasta) não pode estar nas instruções fixas")

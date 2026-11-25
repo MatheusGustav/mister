@@ -51,7 +51,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.Flags().BoolVar(&opts.resume, "continuar", false, "retoma a última sessão desta pasta")
 	root.Flags().StringVar(&opts.session, "sessao", "", "retoma a sessão com este id (veja 'mister sessoes')")
 	root.Flags().StringVar(&opts.model, "modelo", "", "modelo do host (sonnet, opus, fable ou um id completo)")
-	root.Flags().StringVar(&opts.role, "papel", "", "papel do agente principal (padrão: host)")
+	root.Flags().StringVar(&opts.role, "agente", "", "agente principal (padrão: host)")
 	root.MarkFlagsMutuallyExclusive("continuar", "sessao")
 
 	root.AddCommand(newInstallCommand(deps), newRolesCommand(), newSessionsCommand(), newVersionCommand())

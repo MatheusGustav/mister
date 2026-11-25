@@ -72,7 +72,7 @@ func TestExecutor_Execute(t *testing.T) {
 	}{
 		{name: "roda", call: "eco", authorize: AllowAll, wantText: "eco de eco"},
 		{name: "ferramenta que não existe", call: "fantasma", authorize: AllowAll, wantErr: true, wantText: "não existe"},
-		{name: "fora do papel", call: "proibida", authorize: AllowAll, wantErr: true, wantText: "não tem a ferramenta"},
+		{name: "fora do agente", call: "proibida", authorize: AllowAll, wantErr: true, wantText: "não tem a ferramenta"},
 		{name: "autorização nega", call: "eco", authorize: func(context.Context, *Env, Call) error { return denied }, wantErr: true, wantText: "regra de teste"},
 		{name: "pânico vira erro", call: "quebra", authorize: AllowAll, wantErr: true, wantText: "quebrou por dentro"},
 	}

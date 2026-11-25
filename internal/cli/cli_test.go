@@ -179,7 +179,7 @@ func TestChat_ResumeWithoutSession(t *testing.T) {
 
 func TestRoles_ListsNativeAndCustom(t *testing.T) {
 	home, project := isolate(t)
-	dir := filepath.Join(project, ".mister", "papeis")
+	dir := filepath.Join(project, ".mister", "agentes")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -187,27 +187,27 @@ func TestRoles_ListsNativeAndCustom(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "documentador.md"), []byte(custom), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := run(t, DefaultDeps(), "", "papeis")
+	out, _, err := run(t, DefaultDeps(), "", "agentes")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"host", "thread", "nativo", "documentador", "sonnet", "ler_arquivo, escrever_arquivo", "documentador.md"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("a lista de papéis não contém %q:\n%s", want, out)
+			t.Errorf("a lista de agentes não contém %q:\n%s", want, out)
 		}
 	}
 
 	// A role created by a file is usable as the main agent, with no code change.
 	prov := &scriptedProvider{answer: func(provider.Request) string { return "documentado" }}
-	if _, _, err := run(t, fakeDeps(prov), "documente\n", "--papel", "documentador"); err != nil {
+	if _, _, err := run(t, fakeDeps(prov), "documente\n", "--agente", "documentador"); err != nil {
 		t.Fatal(err)
 	}
 	req := prov.requests[0]
 	if req.System != "Você só escreve documentação." || req.Model != "claude-sonnet-5-5" || len(req.Tools) != 2 {
-		t.Errorf("o papel novo não foi aplicado: system=%q model=%q tools=%d", req.System, req.Model, len(req.Tools))
+		t.Errorf("o agente novo não foi aplicado: system=%q model=%q tools=%d", req.System, req.Model, len(req.Tools))
 	}
-	if _, _, err := run(t, fakeDeps(prov), "", "--papel", "fantasma"); err == nil {
-		t.Error("papel que não existe deveria dar erro")
+	if _, _, err := run(t, fakeDeps(prov), "", "--agente", "fantasma"); err == nil {
+		t.Error("agente que não existe deveria dar erro")
 	}
 	_ = home
 }

@@ -38,7 +38,7 @@ func (rt *Runtime) delegateTool() tool.Tool {
 		Tarefa  string `json:"tarefa"`
 		Modelo  string `json:"modelo"`
 		Esforco string `json:"esforco"`
-		Papel   string `json:"papel"`
+		Agente  string `json:"agente"`
 	}
 	return tool.Tool{
 		Name: "delegar",
@@ -48,9 +48,9 @@ func (rt *Runtime) delegateTool() tool.Tool {
 		Schema: tool.Object([]string{"nome", "tarefa"}, map[string]any{
 			"nome":    tool.Str("nome curto do pedido, em minúsculas com hífens (vira o nome da worktree e da branch)"),
 			"tarefa":  tool.Str("o recado completo para o thread"),
-			"modelo":  tool.Str("modelo do thread: sonnet, opus ou fable (opcional, padrão: o do papel)"),
-			"esforco": tool.Str("esforço do thread: low, medium, high, xhigh ou max (opcional, padrão: o do papel)"),
-			"papel":   tool.Str("papel do agente (opcional, padrão: thread)"),
+			"modelo":  tool.Str("modelo do thread: sonnet, opus ou fable (opcional, padrão: o do agente)"),
+			"esforco": tool.Str("esforço do thread: low, medium, high, xhigh ou max (opcional, padrão: o do agente)"),
+			"agente":  tool.Str("qual agente roda a tarefa (opcional, padrão: thread)"),
 		}),
 		Run: func(ctx context.Context, env *tool.Env, raw json.RawMessage) tool.Result {
 			if res, ok := onlyHost(env); !ok {
@@ -66,12 +66,12 @@ func (rt *Runtime) delegateTool() tool.Tool {
 			if strings.TrimSpace(in.Tarefa) == "" {
 				return tool.Fail("'tarefa' veio vazia. O thread só sabe o que estiver escrito nela.")
 			}
-			if in.Papel == "" {
-				in.Papel = role.Thread
+			if in.Agente == "" {
+				in.Agente = role.Thread
 			}
-			r, ok := rt.opts.Roles[in.Papel]
+			r, ok := rt.opts.Roles[in.Agente]
 			if !ok {
-				return tool.Fail("o papel %q não existe. Papéis: %s", in.Papel, strings.Join(roleNames(rt.opts.Roles), ", "))
+				return tool.Fail("o agente %q não existe. Agentes: %s", in.Agente, strings.Join(roleNames(rt.opts.Roles), ", "))
 			}
 			if !role.ValidEffort(in.Esforco) {
 				return tool.Fail("esforço %q inválido. Use low, medium, high, xhigh ou max.", in.Esforco)
@@ -124,7 +124,7 @@ func (rt *Runtime) delegateTool() tool.Tool {
 			if err := rt.saveMeta(); err != nil {
 				return tool.Fail("o thread %s está rodando, mas a sessão não foi gravada: %v", in.Nome, err)
 			}
-			return tool.OK("thread %s lançado (papel %s, modelo %s, esforço %s) em %s, branch %s. Use aguardar_threads para receber o relatório.",
+			return tool.OK("thread %s lançado (agente %s, modelo %s, esforço %s) em %s, branch %s. Use aguardar_threads para receber o relatório.",
 				in.Nome, r.Name, meta.Model, orDash(meta.Effort), path, branch)
 		},
 	}

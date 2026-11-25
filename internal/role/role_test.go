@@ -95,7 +95,7 @@ func TestLoad_NativeRoles(t *testing.T) {
 		}
 	}
 	if thread.Model != "opus" || !strings.Contains(thread.Instructions, "Sem commit, push") {
-		t.Errorf("o papel thread não veio como esperado: modelo %q", thread.Model)
+		t.Errorf("o agente thread não veio como esperado: modelo %q", thread.Model)
 	}
 }
 
@@ -116,10 +116,10 @@ func TestLoad_DirectoriesOverrideAndAdd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := roles["documentador"]; got.Instructions != "do projeto" || got.Model != "sonnet" {
-		t.Errorf("o papel do projeto deveria vencer o global: %+v", got)
+		t.Errorf("o agente do projeto deveria vencer o global: %+v", got)
 	}
 	if got := roles[Thread]; got.Instructions != "thread do usuário" || got.Source == "nativo" {
-		t.Errorf("um arquivo thread.md deveria trocar o papel nativo: %+v", got)
+		t.Errorf("um arquivo thread.md deveria trocar o agente nativo: %+v", got)
 	}
 	if roles[Host].Source != "nativo" {
 		t.Error("o host nativo deveria continuar")
@@ -127,18 +127,18 @@ func TestLoad_DirectoriesOverrideAndAdd(t *testing.T) {
 
 	write(project, "quebrado.md", "---\nname: x\n")
 	if _, err := Load(project); err == nil || !strings.Contains(err.Error(), "quebrado.md") {
-		t.Errorf("papel inválido deveria dar erro citando o arquivo: %v", err)
+		t.Errorf("agente inválido deveria dar erro citando o arquivo: %v", err)
 	}
 }
 
 func TestSystem(t *testing.T) {
 	t.Parallel()
-	r := Role{Instructions: "instruções do papel"}
-	if got := System(r, "", "  \n"); got != "instruções do papel" {
+	r := Role{Instructions: "instruções do agente"}
+	if got := System(r, "", "  \n"); got != "instruções do agente" {
 		t.Errorf("sem regras, quero só as instruções: %q", got)
 	}
 	got := System(r, "regra do dono\n", "regra do projeto")
-	want := "instruções do papel\n\n# Regras do dono\n\nregra do dono\n\n# Regras do projeto\n\nregra do projeto"
+	want := "instruções do agente\n\n# Regras do dono\n\nregra do dono\n\n# Regras do projeto\n\nregra do projeto"
 	if got != want {
 		t.Errorf("System = %q\nquero %q", got, want)
 	}

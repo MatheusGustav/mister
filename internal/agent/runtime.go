@@ -110,7 +110,7 @@ func NewRuntime(ctx context.Context, opts Options) (*Runtime, error) {
 
 	r, ok := opts.Roles[opts.HostRole]
 	if !ok {
-		return nil, fmt.Errorf("o papel %q não existe", opts.HostRole)
+		return nil, fmt.Errorf("o agente %q não existe", opts.HostRole)
 	}
 	model := opts.HostModel
 	if model == "" {
@@ -215,7 +215,7 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 		}
 		r, ok := rt.opts.Roles[tm.Role]
 		if !ok {
-			return fmt.Errorf("o thread %s usa o papel %q, que não existe mais", tm.ID, tm.Role)
+			return fmt.Errorf("o thread %s usa o agente %q, que não existe mais", tm.ID, tm.Role)
 		}
 		t := &thread{meta: tm, noticed: tm.Reported}
 		// A worktree removed since then only matters if the host continues the thread.

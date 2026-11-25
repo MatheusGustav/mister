@@ -96,7 +96,7 @@ func baseRequest() provider.Request {
 		Model:     "claude-opus-5-5",
 		Effort:    "high",
 		MaxTokens: 4000,
-		System:    "instruções do papel",
+		System:    "instruções do agente",
 		Tools: []provider.ToolSpec{
 			{Name: "editar_arquivo", Description: "edita", Schema: schema("caminho")},
 			{Name: "ler_arquivo", Description: "lê", Schema: schema("caminho")},
@@ -129,7 +129,7 @@ func TestClient_Complete_RequestShape(t *testing.T) {
 	}
 
 	system := body["system"].([]any)[0].(map[string]any)
-	if system["text"] != "instruções do papel" || system["cache_control"].(map[string]any)["type"] != "ephemeral" {
+	if system["text"] != "instruções do agente" || system["cache_control"].(map[string]any)["type"] != "ephemeral" {
 		t.Errorf("o bloco de instruções deveria fechar o começo fixo com um ponto de cache: %v", system)
 	}
 	if top := body["cache_control"].(map[string]any); top["type"] != "ephemeral" {

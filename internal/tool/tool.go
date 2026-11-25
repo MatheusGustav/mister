@@ -150,7 +150,7 @@ func (e *Executor) Execute(ctx context.Context, env *Env, allowed []string, call
 		return Fail("a ferramenta %q não existe. Disponíveis: %s", call.Name, strings.Join(allowed, ", "))
 	}
 	if !contains(allowed, call.Name) {
-		return Fail("o papel %q não tem a ferramenta %q. Disponíveis: %s", env.Role, call.Name, strings.Join(allowed, ", "))
+		return Fail("o agente %q não tem a ferramenta %q. Disponíveis: %s", env.Role, call.Name, strings.Join(allowed, ", "))
 	}
 	if err := e.Authorize(ctx, env, call); err != nil {
 		return Fail("chamada de %s não autorizada: %v", call.Name, err)

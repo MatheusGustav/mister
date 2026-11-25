@@ -57,7 +57,7 @@ func newInstallCommand(deps Deps) *cobra.Command {
 			} else {
 				fmt.Fprintf(out, "configuração mantida em %s\n", home.ConfigFile())
 			}
-			fmt.Fprintf(out, "papéis próprios vão em %s (um arquivo .md por papel)\n", home.RolesDir())
+			fmt.Fprintf(out, "agentes próprios vão em %s (um arquivo .md por agente)\n", home.RolesDir())
 
 			cfg, err := home.Load()
 			if err != nil {

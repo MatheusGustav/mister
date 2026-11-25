@@ -1,5 +1,7 @@
 // Package role loads agent roles: instructions, allowed tools and model. A
 // role is a markdown file with a small header, so a new role needs no code.
+// To the user a role is an "agente" ('mister agentes', ~/.mister/agentes); the
+// code keeps "role" for the definition and "agent" for the one running.
 package role
 
 import (
@@ -13,7 +15,7 @@ import (
 	"strings"
 )
 
-//go:embed papeis/*.md
+//go:embed agentes/*.md
 var native embed.FS
 
 // Names of the native roles.
@@ -45,18 +47,18 @@ func ValidEffort(effort string) bool { return validEfforts[effort] }
 func Load(dirs ...string) (map[string]Role, error) {
 	roles := make(map[string]Role)
 
-	entries, err := native.ReadDir("papeis")
+	entries, err := native.ReadDir("agentes")
 	if err != nil {
-		return nil, fmt.Errorf("lendo os papéis nativos: %w", err)
+		return nil, fmt.Errorf("lendo os agentes nativos: %w", err)
 	}
 	for _, e := range entries {
-		data, err := native.ReadFile("papeis/" + e.Name())
+		data, err := native.ReadFile("agentes/" + e.Name())
 		if err != nil {
-			return nil, fmt.Errorf("lendo o papel nativo %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("lendo o agente nativo %s: %w", e.Name(), err)
 		}
 		r, err := Parse(string(data), strings.TrimSuffix(e.Name(), ".md"))
 		if err != nil {
-			return nil, fmt.Errorf("papel nativo %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("agente nativo %s: %w", e.Name(), err)
 		}
 		r.Source = "nativo"
 		roles[r.Name] = r
@@ -65,7 +67,7 @@ func Load(dirs ...string) (map[string]Role, error) {
 	for _, dir := range dirs {
 		files, err := filepath.Glob(filepath.Join(dir, "*.md"))
 		if err != nil {
-			return nil, fmt.Errorf("listando os papéis de %s: %w", dir, err)
+			return nil, fmt.Errorf("listando os agentes de %s: %w", dir, err)
 		}
 		sort.Strings(files)
 		for _, file := range files {
@@ -74,11 +76,11 @@ func Load(dirs ...string) (map[string]Role, error) {
 				continue
 			}
 			if err != nil {
-				return nil, fmt.Errorf("lendo o papel %s: %w", file, err)
+				return nil, fmt.Errorf("lendo o agente %s: %w", file, err)
 			}
 			r, err := Parse(string(data), strings.TrimSuffix(filepath.Base(file), ".md"))
 			if err != nil {
-				return nil, fmt.Errorf("papel %s: %w", file, err)
+				return nil, fmt.Errorf("agente %s: %w", file, err)
 			}
 			r.Source = file
 			roles[r.Name] = r
@@ -129,9 +131,9 @@ func Parse(content, defaultName string) (Role, error) {
 	r.Instructions = strings.TrimSpace(body)
 	switch {
 	case r.Name == "":
-		return r, errors.New("papel sem nome")
+		return r, errors.New("agente sem nome")
 	case r.Instructions == "":
-		return r, errors.New("papel sem instruções")
+		return r, errors.New("agente sem instruções")
 	case !validEfforts[r.Effort]:
 		return r, fmt.Errorf("effort %q inválido (aceitos: low, medium, high, xhigh, max)", r.Effort)
 	}
