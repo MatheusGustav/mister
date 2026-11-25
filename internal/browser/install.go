@@ -47,22 +47,9 @@ func (m *Manager) Installed() bool {
 	return err == nil && !info.IsDir()
 }
 
-// ensureInstalled downloads the browser when it is not on disk yet. Callers
-// that arrive during a download wait for it instead of starting another.
+// ensureInstalled downloads the browser when it is not on disk yet.
 func (m *Manager) ensureInstalled(ctx context.Context) error {
-	if m.Installed() {
-		return nil
-	}
-	select {
-	case m.installing <- struct{}{}:
-		defer func() { <-m.installing }()
-	case <-ctx.Done():
-		return fmt.Errorf("esperando o download do navegador: %w", ctx.Err())
-	}
-	if m.Installed() {
-		return nil
-	}
-	return m.install(ctx)
+	return m.installer.Ensure(ctx, m.Installed, m.install)
 }
 
 // install downloads and unpacks the browser beside its final folder and only

@@ -17,19 +17,12 @@ import (
 )
 
 // Runs against the real llama-server and model. Point MISTER_EMBEDDING_DIR at
-// the folder 'mister install' fills (~/.mister/embedding):
+// the folder the Mister keeps them in (~/.mister/embedding); an empty folder
+// makes the first search download them:
 //
 //	MISTER_EMBEDDING_DIR=~/.mister/embedding go test -tags=integration ./internal/embed/
 func TestLocal_RealServer_RecallInPortuguese(t *testing.T) {
-	dir := os.Getenv("MISTER_EMBEDDING_DIR")
-	if dir == "" {
-		t.Skip("defina MISTER_EMBEDDING_DIR com a pasta do servidor de embedding instalado")
-	}
-	local := NewLocal(dir)
-	if !local.Installed() {
-		t.Fatalf("não há servidor de embedding instalado em %s", dir)
-	}
-	defer local.Close()
+	local := realServer(t)
 
 	base := t.TempDir()
 	store := memory.Open(filepath.Join(base, "notas"), filepath.Join(base, "indice.json"), local, Thresholds())
@@ -117,8 +110,10 @@ func realServer(t *testing.T) *Local {
 		t.Skip("defina MISTER_EMBEDDING_DIR com a pasta do servidor de embedding instalado")
 	}
 	local := NewLocal(dir)
-	if !local.Installed() {
-		t.Fatalf("não há servidor de embedding instalado em %s", dir)
+	local.Logf = t.Logf
+	// Downloaded here, outside the time limit each test gives to its searches.
+	if err := local.ensureInstalled(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	t.Cleanup(local.Close)
 	return local

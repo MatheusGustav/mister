@@ -14,6 +14,7 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
+	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/provider"
 	"github.com/MatheusGustav/mister/internal/tool"
 )
@@ -52,8 +53,8 @@ type Manager struct {
 	// Logf receives what the user should know while waiting (the download).
 	Logf func(format string, args ...any)
 
-	tabs       *tool.HeavyQueue
-	installing chan struct{}
+	tabs      *tool.HeavyQueue
+	installer embed.OnDemand
 
 	mu       sync.Mutex
 	proc     *process
@@ -77,7 +78,6 @@ func New(dir string, maxTabs int, idleTimeout, loadTimeout time.Duration) *Manag
 		LoadTimeout:  loadTimeout,
 		StartTimeout: 30 * time.Second,
 		tabs:         tool.NewHeavyQueue(maxTabs),
-		installing:   make(chan struct{}, 1),
 	}
 }
 

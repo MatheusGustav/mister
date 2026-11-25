@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -120,7 +121,7 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 	if stdout != "resposta 1\nresposta 2\n" {
 		t.Errorf("a saída padrão deveria trazer só as respostas: %q", stdout)
 	}
-	for _, want := range []string{"sessão ", "o servidor de embedding não está instalado", "host [host, claude-opus-5-5, esforço high]", "fila de comandos pesados: 0 rodando, 0 esperando (limite 1)", "processo: heap"} {
+	for _, want := range []string{"sessão ", "host [host, claude-opus-5-5, esforço high]", "fila de comandos pesados: 0 rodando, 0 esperando (limite 1)", "processo: heap"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("o terminal deveria mostrar %q:\n%s", want, stderr)
 		}
@@ -463,5 +464,85 @@ func TestChat_ResumeKeepsTheAgentAndTheModel(t *testing.T) {
 	changed := ask("outro modelo\n", "--continue", "--model", "haiku")
 	if changed.Model != "claude-haiku-5-5" || !strings.Contains(changed.System, "instruções do revisor") {
 		t.Errorf("a flag deveria trocar só o modelo: modelo %q, instruções %q", changed.Model, changed.System)
+	}
+}
+
+// toolProvider asks for one tool call and then answers with what came back.
+type toolProvider struct {
+	name  string
+	input string
+	calls int
+}
+
+func (p *toolProvider) Name() string                        { return "fake" }
+func (p *toolProvider) Capabilities() provider.Capabilities { return provider.Capabilities{} }
+
+func (p *toolProvider) Complete(_ context.Context, req provider.Request) (*provider.Response, error) {
+	p.calls++
+	if p.calls == 1 {
+		return &provider.Response{Stop: provider.StopToolUse, Message: provider.Message{Role: provider.RoleAssistant, Blocks: []provider.Block{
+			{Type: provider.BlockToolUse, ToolUseID: "t1", ToolName: p.name, Input: json.RawMessage(p.input)},
+		}}}, nil
+	}
+	last := req.Messages[len(req.Messages)-1]
+	text := "resultado: " + last.Blocks[0].Text
+	if req.OnText != nil {
+		req.OnText(text)
+	}
+	return &provider.Response{Stop: provider.StopEndTurn, Message: provider.Message{Role: provider.RoleAssistant,
+		Blocks: []provider.Block{{Type: provider.BlockText, Text: text}}}}, nil
+}
+
+// Without 'mister install', what a tool needs is downloaded the first time
+// the tool is used, and not before.
+func TestChat_DownloadsWhatIsMissingOnFirstUse(t *testing.T) {
+	home, project := isolate(t)
+	t.Setenv("PATH", "/usr/bin")
+	if err := os.WriteFile(filepath.Join(project, "a.txt"), []byte("agulha no palheiro\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(home.MemoryDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home.MemoryDir(), "portas.md"), []byte("O ambiente usa as portas 8080 e 3307.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deps := fakeDeps(&scriptedProvider{answer: func(provider.Request) string { return "oi" }})
+	deps.EmbeddingSources = fakeSources(t)
+	deps.RipgrepSource = fakeRipgrep(t)
+
+	// A conversation that searches nothing in the files downloads no ripgrep;
+	// the memory, searched at every message, brings its server.
+	_, stderr, err := run(t, deps, "qual a porta?\n/exit\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := embed.NewLocal(home.EmbeddingDir())
+	local.Sources = deps.EmbeddingSources
+	if !local.Installed() || !strings.Contains(stderr, "memória: o servidor de embedding ainda não está no disco: baixando agora") {
+		t.Errorf("a primeira busca na memória deveria baixar o servidor de embedding:\n%s", stderr)
+	}
+	if _, err := os.Stat(home.RipgrepFile()); err == nil || strings.Contains(stderr, "busca:") {
+		t.Errorf("sem busca nos arquivos, o ripgrep não deveria ser baixado:\n%s", stderr)
+	}
+
+	// The fake ripgrep finds nothing (exit 1), which tells it was the one used.
+	searcher := &toolProvider{name: "buscar", input: `{"padrao": "agulha"}`}
+	deps.NewProvider = func() (provider.Provider, error) { return searcher, nil }
+	stdout, stderr, err := run(t, deps, "procure\n/exit\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(home.RipgrepFile()); err != nil || info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("a primeira busca deveria baixar o ripgrep para %s: %v", home.RipgrepFile(), err)
+	}
+	if !strings.Contains(stderr, "busca: o ripgrep ainda não está no disco: baixando agora") || !strings.Contains(stderr, "busca: ripgrep instalado em") {
+		t.Errorf("o download do ripgrep deveria ser avisado:\n%s", stderr)
+	}
+	if strings.Contains(stdout, "a.txt") {
+		t.Errorf("a busca deveria ter usado o ripgrep baixado, não o do sistema nem a busca própria:\n%s", stdout)
+	}
+	if strings.Contains(stderr, "memória: o servidor de embedding ainda não está no disco") {
+		t.Errorf("o servidor de embedding já estava no disco e não deveria ser baixado de novo:\n%s", stderr)
 	}
 }

@@ -119,13 +119,12 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 
 	local := embed.NewLocal(home.EmbeddingDir())
 	local.Sources = deps.EmbeddingSources
+	local.Logf = func(format string, args ...any) { out.status("memória: "+format, args...) }
 	defer local.Close()
-	if !local.Installed() {
-		out.status("memória: o servidor de embedding não está instalado; as notas são gravadas mas não buscadas. Rode 'mister install'.")
-	}
 	mem := memory.Open(home.MemoryDir(), home.IndexFile(), local, embed.Thresholds())
 	registry := tool.NewRegistry()
-	tools := append(tool.FileTools(), tool.SearchTools(home.RipgrepFile())...)
+	searchLog := func(format string, args ...any) { out.status("busca: "+format, args...) }
+	tools := append(tool.FileTools(), tool.SearchTools(home.RipgrepFile(), ripgrepOnDemand(home.RipgrepFile(), deps.RipgrepSource, searchLog))...)
 	tools = append(tools, tool.ShellTools(tool.DefaultShellLimits())...)
 	tools = append(tools, web.NewExa().Tool())
 	tools = append(tools, mem.Tools()...)

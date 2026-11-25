@@ -74,18 +74,23 @@ func Thresholds() memory.Thresholds {
 // depends on its question ("3307.") is no longer found.
 const SessionThreshold = 0.55
 
-// ErrNotInstalled means the managed server or its model is not on disk yet.
-var ErrNotInstalled = errors.New("o servidor de embedding local não está instalado: rode 'mister install'")
+// installRetry spaces the download attempts: the memory is searched by itself
+// at every message, and a machine without network must not try each time.
+const installRetry = 10 * time.Minute
 
-// Local is a llama-server kept in the Mister home. It starts on the first
-// search and stops after a while without use, so it only holds memory while
+// Local is a llama-server kept in the Mister home. It is downloaded on the
+// first search, when 'mister install' did not bring it before, starts on
+// demand and stops after a while without use, so it only holds memory while
 // the memory is being searched.
 type Local struct {
 	Dir          string
 	Sources      Sources
 	IdleTimeout  time.Duration
 	StartTimeout time.Duration
-	client       *client
+	// Logf receives what the user should know while waiting (the download).
+	Logf      func(format string, args ...any)
+	client    *client
+	installer OnDemand
 
 	mu       sync.Mutex
 	proc     *process
@@ -108,6 +113,7 @@ func NewLocal(dir string) *Local {
 		IdleTimeout:  5 * time.Minute,
 		StartTimeout: 90 * time.Second,
 		client:       newClient(gemma),
+		installer:    OnDemand{RetryAfter: installRetry},
 	}
 }
 
@@ -148,9 +154,33 @@ func (l *Local) EmbedDocuments(ctx context.Context, docs []memory.Document) ([][
 	return l.client.embedDocuments(ctx, url, docs)
 }
 
-// acquire makes sure the server is up and returns its address. The caller
-// must call release when the request ends; the idle clock starts then.
+func (l *Local) logf(format string, args ...any) {
+	if l.Logf != nil {
+		l.Logf(format, args...)
+	}
+}
+
+// ensureInstalled downloads the server and the model when they are not on disk.
+func (l *Local) ensureInstalled(ctx context.Context) error {
+	return l.installer.Ensure(ctx, l.Installed, func(ctx context.Context) error {
+		l.logf("o servidor de embedding ainda não está no disco: baixando agora, só desta vez")
+		err := l.Install(ctx, l.logf)
+		switch {
+		case err == nil:
+			l.logf("servidor de embedding instalado em %s", l.Dir)
+		case ctx.Err() == nil:
+			l.logf("não consegui baixar o servidor de embedding: %v. As notas seguem sendo gravadas, sem busca; tento de novo depois de %s", err, installRetry)
+		}
+		return err
+	})
+}
+
+// acquire makes sure the server is installed and up, and returns its address.
+// The caller must call release when the request ends; the idle clock starts then.
 func (l *Local) acquire(ctx context.Context) (url string, release func(), err error) {
+	if err := l.ensureInstalled(ctx); err != nil {
+		return "", nil, err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.proc != nil {
@@ -210,9 +240,6 @@ func (l *Local) Close() {
 }
 
 func (l *Local) start(ctx context.Context) (*process, error) {
-	if !l.Installed() {
-		return nil, ErrNotInstalled
-	}
 	port, err := freePort()
 	if err != nil {
 		return nil, fmt.Errorf("reservando uma porta para o servidor de embedding: %w", err)
@@ -343,18 +370,9 @@ func (l *Local) Install(ctx context.Context, logf func(format string, args ...an
 	}
 
 	if _, err := os.Stat(l.serverPath()); err != nil {
-		archive := filepath.Join(l.Dir, "llama-server.tar.gz")
 		logf("baixando o servidor de embedding (llama.cpp)")
-		if err := Download(ctx, l.Sources.ServerURL, l.Sources.ServerSHA256, archive, logf); err != nil {
+		if err := l.installServer(ctx, logf); err != nil {
 			return err
-		}
-		err := ExtractTarGz(archive, l.Dir)
-		os.Remove(archive)
-		if err != nil {
-			return fmt.Errorf("extraindo o servidor de embedding: %w", err)
-		}
-		if _, err := os.Stat(l.serverPath()); err != nil {
-			return fmt.Errorf("o arquivo baixado não trouxe o llama-server em %s", l.serverPath())
 		}
 	}
 	if _, err := os.Stat(l.modelPath()); err != nil {
@@ -362,6 +380,37 @@ func (l *Local) Install(ctx context.Context, logf func(format string, args ...an
 		if err := Download(ctx, l.Sources.ModelURL, l.Sources.ModelSHA256, l.modelPath(), logf); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// installServer downloads and unpacks the server beside its final folder and
+// only then moves it there, so a download cut in the middle leaves nothing
+// that looks installed.
+func (l *Local) installServer(ctx context.Context, logf func(format string, args ...any)) error {
+	tmp, err := os.MkdirTemp(l.Dir, ".download-*")
+	if err != nil {
+		return fmt.Errorf("criando a pasta do download em %s: %w", l.Dir, err)
+	}
+	defer os.RemoveAll(tmp)
+	archive := filepath.Join(tmp, "llama-server.tar.gz")
+	if err := Download(ctx, l.Sources.ServerURL, l.Sources.ServerSHA256, archive, logf); err != nil {
+		return err
+	}
+	unpacked := filepath.Join(tmp, "conteudo")
+	if err := ExtractTarGz(archive, unpacked); err != nil {
+		return fmt.Errorf("extraindo o servidor de embedding: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(unpacked, l.Sources.ServerDir, "llama-server")); err != nil {
+		return fmt.Errorf("o arquivo baixado não trouxe o llama-server em %s", l.serverPath())
+	}
+	target := filepath.Join(l.Dir, l.Sources.ServerDir)
+	// What an extraction cut in the middle by an older version left there.
+	if err := os.RemoveAll(target); err != nil {
+		return fmt.Errorf("limpando %s: %w", target, err)
+	}
+	if err := os.Rename(filepath.Join(unpacked, l.Sources.ServerDir), target); err != nil {
+		return fmt.Errorf("instalando o servidor de embedding em %s: %w", target, err)
 	}
 	return nil
 }

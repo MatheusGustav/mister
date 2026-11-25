@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -17,6 +16,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -166,14 +167,120 @@ func TestLocal_RestartsAServerThatDied(t *testing.T) {
 	}
 }
 
-func TestLocal_NotInstalled(t *testing.T) {
+// fakeDownloads serves the fake llama-server and a model, and counts the downloads.
+func fakeDownloads(t *testing.T) (Sources, *atomic.Int32) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nMISTER_FAKE_LLAMA=1 exec %q -test.run=TestHelperServer -- \"$@\"\n", self)
+	archive := tarGz(t, map[string]string{"llama-x/llama-server": script}, nil)
+	model := []byte("pesos de mentira")
+	var downloads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		downloads.Add(1)
+		// Long enough for every search to arrive during the download.
+		time.Sleep(100 * time.Millisecond)
+		switch r.URL.Path {
+		case "/servidor.tar.gz":
+			_, _ = w.Write(archive)
+		case "/modelo.gguf":
+			_, _ = w.Write(model)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return Sources{
+		ServerURL: srv.URL + "/servidor.tar.gz", ServerSHA256: sum(archive), ServerDir: "llama-x",
+		ModelURL: srv.URL + "/modelo.gguf", ModelSHA256: sum(model), ModelFile: "modelo.gguf",
+	}, &downloads
+}
+
+func TestLocal_DownloadsOnTheFirstSearch(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("o servidor gerenciado só existe para linux x86_64")
+	}
 	t.Parallel()
-	l := NewLocal(t.TempDir())
+	sources, downloads := fakeDownloads(t)
+	l := NewLocal(filepath.Join(t.TempDir(), "embedding"))
+	l.Sources = sources
+	l.client.model = model{name: "m", queryPrefix: "q: ", docPrefix: "d {titulo}: "}
+	l.StartTimeout = 20 * time.Second
+	var logMu sync.Mutex
+	var log []string
+	l.Logf = func(format string, args ...any) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		log = append(log, fmt.Sprintf(format, args...))
+	}
+	t.Cleanup(l.Close)
 	if l.Installed() {
 		t.Fatal("pasta vazia não é instalação")
 	}
-	if _, err := l.EmbedQuery(context.Background(), "x"); !errors.Is(err, ErrNotInstalled) {
-		t.Errorf("erro = %v, quero ErrNotInstalled", err)
+
+	var wg sync.WaitGroup
+	errs := make([]error, 6)
+	for i := range errs {
+		wg.Go(func() { _, errs[i] = l.EmbedQuery(context.Background(), "x") })
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("busca %d: %v", i, err)
+		}
+	}
+	if got := downloads.Load(); got != 2 {
+		t.Errorf("houve %d downloads para 6 buscas ao mesmo tempo, quero 2 (servidor e modelo)", got)
+	}
+	if !l.Installed() {
+		t.Error("depois da primeira busca o servidor deveria estar instalado")
+	}
+	logMu.Lock()
+	defer logMu.Unlock()
+	if len(log) == 0 || !strings.Contains(log[0], "baixando agora, só desta vez") || !strings.Contains(log[len(log)-1], "instalado em") {
+		t.Errorf("o download deveria ser avisado ao usuário, do começo ao fim: %q", log)
+	}
+}
+
+func TestLocal_DownloadThatFailsIsNotRetriedAtEverySearch(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("o servidor gerenciado só existe para linux x86_64")
+	}
+	t.Parallel()
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	l := NewLocal(filepath.Join(t.TempDir(), "embedding"))
+	l.Sources = Sources{ServerURL: srv.URL + "/s.tar.gz", ServerDir: "llama-x", ModelURL: srv.URL + "/m.gguf", ModelFile: "m.gguf"}
+	var log []string
+	l.Logf = func(format string, args ...any) { log = append(log, fmt.Sprintf(format, args...)) }
+	t.Cleanup(l.Close)
+
+	if _, err := l.EmbedQuery(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("erro = %v", err)
+	}
+	if _, err := l.EmbedQuery(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "falhou há pouco") {
+		t.Errorf("a segunda busca deveria receber o mesmo erro sem novo download: %v", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Errorf("houve %d pedidos de download, quero 1", got)
+	}
+	failures := 0
+	for _, line := range log {
+		if strings.Contains(line, "não consegui baixar o servidor de embedding") {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Errorf("a falha deveria ser avisada uma vez, foi %d: %q", failures, log)
+	}
+	if left, _ := filepath.Glob(filepath.Join(l.Dir, ".download-*")); len(left) > 0 || l.Installed() {
+		t.Errorf("o download que falhou não pode deixar restos: %v", left)
 	}
 }
 
@@ -259,8 +366,9 @@ func TestLocal_Install(t *testing.T) {
 		t.Errorf("modelo gravado = %q", data)
 	}
 	leftovers, _ := filepath.Glob(filepath.Join(l.Dir, "*.parcial"))
-	if _, err := os.Stat(filepath.Join(l.Dir, "llama-server.tar.gz")); err == nil || len(leftovers) > 0 {
-		t.Error("o arquivo baixado e os parciais deveriam ser apagados")
+	downloading, _ := filepath.Glob(filepath.Join(l.Dir, ".download-*"))
+	if _, err := os.Stat(filepath.Join(l.Dir, "llama-server.tar.gz")); err == nil || len(leftovers) > 0 || len(downloading) > 0 {
+		t.Error("o arquivo baixado, os parciais e a pasta do download deveriam ser apagados")
 	}
 
 	before := downloads
@@ -270,6 +378,24 @@ func TestLocal_Install(t *testing.T) {
 	if downloads != before {
 		t.Error("instalar de novo não deveria baixar o que já está no disco")
 	}
+
+	t.Run("extração cortada no meio é refeita", func(t *testing.T) {
+		half := NewLocal(filepath.Join(t.TempDir(), "embedding"))
+		half.Sources = sources
+		stale := filepath.Join(half.Dir, "llama-x", "resto-antigo")
+		if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(stale, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := half.Install(context.Background(), logf); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(stale); err == nil || !half.Installed() {
+			t.Error("a pasta deixada pela metade deveria ser trocada pela instalação inteira")
+		}
+	})
 
 	t.Run("arquivo que não confere é recusado", func(t *testing.T) {
 		bad := NewLocal(filepath.Join(t.TempDir(), "embedding"))

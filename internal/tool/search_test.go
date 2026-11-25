@@ -25,7 +25,7 @@ func searchFixture(t *testing.T) *Env {
 func TestGrep(t *testing.T) {
 	t.Parallel()
 	env := searchFixture(t)
-	grep := find(t, SearchTools(""), "buscar")
+	grep := find(t, SearchTools("", nil), "buscar")
 
 	tests := []struct {
 		name     string
@@ -128,7 +128,7 @@ func TestGrepWalking(t *testing.T) {
 func TestGlob(t *testing.T) {
 	t.Parallel()
 	env := searchFixture(t)
-	glob := find(t, SearchTools(""), "glob")
+	glob := find(t, SearchTools("", nil), "glob")
 
 	tests := []struct {
 		name    string
@@ -190,8 +190,22 @@ func TestRipgrepPath_PrefersTheOneInstalledByTheMister(t *testing.T) {
 	if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := ripgrepPath(own); got != own {
+	ctx := context.Background()
+	if got := ripgrepPath(ctx, own, nil); got != own {
 		t.Errorf("ripgrepPath = %q, quero o instalado pelo Mister %q", got, own)
+	}
+
+	// On the first search the Mister downloads its own before looking for it.
+	late := filepath.Join(t.TempDir(), "rg")
+	calls := 0
+	download := func(context.Context) {
+		calls++
+		if err := os.WriteFile(late, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := ripgrepPath(ctx, late, download); got != late || calls != 1 {
+		t.Errorf("ripgrepPath = %q depois de %d downloads, quero o baixado na hora %q", got, calls, late)
 	}
 
 	inPath := t.TempDir()
@@ -200,11 +214,12 @@ func TestRipgrepPath_PrefersTheOneInstalledByTheMister(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", inPath)
-	if got := ripgrepPath(filepath.Join(t.TempDir(), "falta")); got != other {
+	failed := func(context.Context) {}
+	if got := ripgrepPath(ctx, filepath.Join(t.TempDir(), "falta"), failed); got != other {
 		t.Errorf("sem o do Mister, ripgrepPath = %q, quero o do PATH %q", got, other)
 	}
 	t.Setenv("PATH", t.TempDir())
-	if got := ripgrepPath(""); got != "" {
-		t.Errorf("sem ripgrep nenhum, ripgrepPath = %q, quero vazio", got)
+	if got := ripgrepPath(ctx, "", download); got != "" || calls != 1 {
+		t.Errorf("sem ripgrep nenhum, ripgrepPath = %q (%d downloads), quero vazio e nenhum download novo", got, calls)
 	}
 }

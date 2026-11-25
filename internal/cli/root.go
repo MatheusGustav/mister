@@ -16,11 +16,11 @@ var Version = "dev"
 // Deps are the pieces a test replaces.
 type Deps struct {
 	NewProvider func() (provider.Provider, error)
-	// EmbeddingSources is where 'mister install' downloads the local
-	// embedding server and its model from.
+	// EmbeddingSources is where the local embedding server and its model are
+	// downloaded from, by 'mister install' or on the first memory search.
 	EmbeddingSources embed.Sources
-	// RipgrepSource is where 'mister install' downloads the ripgrep of the
-	// search tool from.
+	// RipgrepSource is where the ripgrep of the search tool is downloaded
+	// from, by 'mister install' or on the first search.
 	RipgrepSource RipgrepSource
 	// BrowserSource is where the screenshot tool downloads its browser from,
 	// on the first screenshot.

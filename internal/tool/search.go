@@ -28,14 +28,18 @@ const (
 var skippedDirs = map[string]bool{".git": true, "node_modules": true, ".venv": true, "__pycache__": true}
 
 // SearchTools returns the content search and the glob tool. ownRipgrep is the
-// ripgrep 'mister install' keeps; when that file is not there the search uses
-// the one in PATH, and without any it walks the files itself.
-func SearchTools(ownRipgrep string) []Tool {
-	return []Tool{grepTool(ownRipgrep), globTool()}
+// ripgrep the Mister keeps; ensure, when given, downloads it on the first
+// search. When that file is not there the search uses the one in PATH, and
+// without any it walks the files itself.
+func SearchTools(ownRipgrep string, ensure func(ctx context.Context)) []Tool {
+	return []Tool{grepTool(ownRipgrep, ensure), globTool()}
 }
 
-func ripgrepPath(own string) string {
+func ripgrepPath(ctx context.Context, own string, ensure func(ctx context.Context)) string {
 	if own != "" {
+		if ensure != nil {
+			ensure(ctx)
+		}
 		if info, err := os.Stat(own); err == nil && !info.IsDir() {
 			return own
 		}
@@ -46,7 +50,7 @@ func ripgrepPath(own string) string {
 	return ""
 }
 
-func grepTool(ownRipgrep string) Tool {
+func grepTool(ownRipgrep string, ensure func(ctx context.Context)) Tool {
 	type input struct {
 		Padrao  string `json:"padrao"`
 		Caminho string `json:"caminho"`
@@ -87,7 +91,7 @@ func grepTool(ownRipgrep string) Tool {
 			}
 
 			var lines []string
-			if rg := ripgrepPath(ownRipgrep); rg != "" {
+			if rg := ripgrepPath(ctx, ownRipgrep, ensure); rg != "" {
 				lines, err = grepWithRipgrep(ctx, rg, in.Padrao, in.Glob, root)
 			} else {
 				lines, err = grepWalking(ctx, re, in.Glob, root)

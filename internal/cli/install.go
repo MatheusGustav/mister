@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -22,8 +23,10 @@ func newInstallCommand(deps Deps) *cobra.Command {
 		Short: "Instala este binário e cria a pasta do Mister",
 		Long: "Copia o binário em execução para a pasta de destino (padrão: ~/.local/bin),\n" +
 			"cria a pasta do Mister (~/.mister) com a configuração padrão, se ainda não existir,\n" +
-			"e baixa o servidor de embedding da memória (llama.cpp e o modelo EmbeddingGemma 300M,\n" +
-			"cerca de 300 MB) e o ripgrep que a ferramenta de busca usa.",
+			"e adianta o download do servidor de embedding da memória (llama.cpp e o modelo\n" +
+			"EmbeddingGemma 300M, cerca de 300 MB) e do ripgrep que a ferramenta de busca usa.\n" +
+			"Sem este comando, cada um é baixado na primeira vez que for usado, assim como o\n" +
+			"navegador dos prints.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
@@ -97,8 +100,7 @@ func newInstallCommand(deps Deps) *cobra.Command {
 	return cmd
 }
 
-// RipgrepSource pins the ripgrep 'mister install' downloads: exact file, by
-// checksum.
+// RipgrepSource pins the ripgrep the Mister downloads: exact file, by checksum.
 type RipgrepSource struct {
 	URL    string
 	SHA256 string
@@ -112,6 +114,34 @@ func DefaultRipgrepSource() RipgrepSource {
 		URL:    "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
 		SHA256: "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
 		Binary: "ripgrep-15.1.0-x86_64-unknown-linux-musl/rg",
+	}
+}
+
+// ripgrepRetry spaces the download attempts when one fails: the search has
+// other ways to run meanwhile.
+const ripgrepRetry = 10 * time.Minute
+
+// ripgrepOnDemand returns what the search tool calls before each search: it
+// downloads the ripgrep to target the first time, when 'mister install' did
+// not bring it before.
+func ripgrepOnDemand(target string, src RipgrepSource, logf func(format string, args ...any)) func(context.Context) {
+	installer := &embed.OnDemand{RetryAfter: ripgrepRetry}
+	installed := func() bool {
+		info, err := os.Stat(target)
+		return err == nil && !info.IsDir()
+	}
+	return func(ctx context.Context) {
+		_ = installer.Ensure(ctx, installed, func(ctx context.Context) error {
+			logf("o ripgrep ainda não está no disco: baixando agora, só desta vez")
+			err := installRipgrep(ctx, target, src, logf)
+			switch {
+			case err == nil:
+				logf("ripgrep instalado em %s", target)
+			case ctx.Err() == nil:
+				logf("não consegui baixar o ripgrep: %v. A busca segue com o ripgrep do sistema, ou sem ele; tento de novo depois de %s", err, ripgrepRetry)
+			}
+			return err
+		})
 	}
 }
 

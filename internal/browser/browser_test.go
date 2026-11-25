@@ -165,16 +165,6 @@ func TestManager_Install_Failures(t *testing.T) {
 		})
 	}
 
-	t.Run("quem desiste na espera não trava", func(t *testing.T) {
-		t.Parallel()
-		m := newTestManager(t, good)
-		m.installing <- struct{}{}
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
-		if err := m.ensureInstalled(ctx); err == nil || !strings.Contains(err.Error(), "esperando o download") {
-			t.Errorf("erro = %v", err)
-		}
-	})
 }
 
 func TestExtractZip_RefusesEntriesOutsideTheFolder(t *testing.T) {

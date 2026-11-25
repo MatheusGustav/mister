@@ -99,7 +99,7 @@ func (h Home) IndexFile() string    { return filepath.Join(h.Dir, "indice.json")
 // first screenshot.
 func (h Home) BrowserDir() string { return filepath.Join(h.Dir, "browser") }
 
-// RipgrepFile is the ripgrep 'mister install' downloads for the search tool.
+// RipgrepFile is the ripgrep the Mister downloads for the search tool.
 func (h Home) RipgrepFile() string { return filepath.Join(h.Dir, "bin", "rg") }
 
 // Ensure creates the home directory and its subfolders.
