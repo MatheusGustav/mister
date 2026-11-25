@@ -21,6 +21,9 @@ func TestHome_Load(t *testing.T) {
 				if cfg.MaxThreads != 3 || cfg.HeavyLimit != 1 || cfg.WebSearch != "auto" || cfg.Model("opus") != "claude-opus-5-5" {
 					t.Errorf("padrão inesperado: %+v", cfg)
 				}
+				if cfg.BrowserTabs != 3 || cfg.BrowserIdleMinutes != 5 || cfg.BrowserLoadSeconds != 30 {
+					t.Errorf("padrão do navegador inesperado: %+v", cfg)
+				}
 			},
 		},
 		{
@@ -29,6 +32,9 @@ func TestHome_Load(t *testing.T) {
 			check: func(t *testing.T, cfg Config) {
 				if cfg.MaxThreads != 6 || cfg.HeavyLimit != 1 {
 					t.Errorf("max_threads=%d limite_pesado=%d", cfg.MaxThreads, cfg.HeavyLimit)
+				}
+				if cfg.BrowserTabs != 3 || cfg.BrowserIdleMinutes != 5 || cfg.BrowserLoadSeconds != 30 {
+					t.Errorf("arquivo sem os campos do navegador deveria ficar com o padrão: %+v", cfg)
 				}
 				if cfg.Model("sonnet") != "outro-id" || cfg.Model("fable") != "claude-fable-5-2" {
 					t.Errorf("modelos: %v", cfg.Models)
@@ -46,6 +52,14 @@ func TestHome_Load(t *testing.T) {
 		{name: "json inválido", file: `{`, wantErr: "JSON válido"},
 		{name: "limite zero", file: `{"limite_pesado": 0}`, wantErr: "limite_pesado"},
 		{name: "pesquisa inválida", file: `{"pesquisa_web": "google"}`, wantErr: "pesquisa_web"},
+		{name: "navegador ajustado", file: `{"navegador_abas": 1, "navegador_ocioso_minutos": 2, "navegador_carregamento_segundos": 60}`, check: func(t *testing.T, cfg Config) {
+			if cfg.BrowserTabs != 1 || cfg.BrowserIdleMinutes != 2 || cfg.BrowserLoadSeconds != 60 {
+				t.Errorf("navegador: %+v", cfg)
+			}
+		}},
+		{name: "nenhuma aba", file: `{"navegador_abas": 0}`, wantErr: "navegador_abas"},
+		{name: "ocioso zero", file: `{"navegador_ocioso_minutos": 0}`, wantErr: "navegador_ocioso_minutos"},
+		{name: "carregamento negativo", file: `{"navegador_carregamento_segundos": -5}`, wantErr: "navegador_carregamento_segundos"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

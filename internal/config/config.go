@@ -32,6 +32,13 @@ type Config struct {
 	WebSearch string `json:"pesquisa_web"`
 	// WebSearchMaxUses limits native searches per model answer.
 	WebSearchMaxUses int `json:"pesquisa_web_max_usos"`
+	// BrowserTabs is how many tabs of the screenshot browser may be open at
+	// the same time; the other requests wait in line.
+	BrowserTabs int `json:"navegador_abas"`
+	// BrowserIdleMinutes closes the browser after this long without a screenshot.
+	BrowserIdleMinutes int `json:"navegador_ocioso_minutos"`
+	// BrowserLoadSeconds is how long a page may take to load.
+	BrowserLoadSeconds int `json:"navegador_carregamento_segundos"`
 }
 
 func Default() Config {
@@ -49,6 +56,10 @@ func Default() Config {
 		MaxIterations:    200,
 		WebSearch:        "auto",
 		WebSearchMaxUses: 5,
+
+		BrowserTabs:        3,
+		BrowserIdleMinutes: 5,
+		BrowserLoadSeconds: 30,
 	}
 }
 
@@ -83,6 +94,10 @@ func (h Home) MemoryDir() string    { return filepath.Join(h.Dir, "memory") }
 func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "AGENTS.md") }
 func (h Home) EmbeddingDir() string { return filepath.Join(h.Dir, "embedding") }
 func (h Home) IndexFile() string    { return filepath.Join(h.Dir, "indice.json") }
+
+// BrowserDir is where the browser of the screenshot tool is downloaded, on the
+// first screenshot.
+func (h Home) BrowserDir() string { return filepath.Join(h.Dir, "browser") }
 
 // RipgrepFile is the ripgrep 'mister install' downloads for the search tool.
 func (h Home) RipgrepFile() string { return filepath.Join(h.Dir, "bin", "rg") }
@@ -134,6 +149,12 @@ func (c Config) validate() error {
 		return fmt.Errorf("config: pesquisa_web %q inválido; use \"auto\" ou \"exa\"", c.WebSearch)
 	case c.WebSearchMaxUses < 1:
 		return errors.New("config: pesquisa_web_max_usos precisa ser 1 ou mais")
+	case c.BrowserTabs < 1:
+		return errors.New("config: navegador_abas precisa ser 1 ou mais")
+	case c.BrowserIdleMinutes < 1:
+		return errors.New("config: navegador_ocioso_minutos precisa ser 1 ou mais")
+	case c.BrowserLoadSeconds < 1:
+		return errors.New("config: navegador_carregamento_segundos precisa ser 1 ou mais")
 	}
 	return nil
 }

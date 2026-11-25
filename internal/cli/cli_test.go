@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/MatheusGustav/mister/internal/agent"
+	"github.com/MatheusGustav/mister/internal/browser"
 	"github.com/MatheusGustav/mister/internal/config"
 	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/provider"
@@ -134,12 +135,19 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 	if !strings.Contains(first.Messages[0].Text(), "primeira pergunta") || !strings.Contains(first.Messages[0].Text(), "Projeto: "+project) {
 		t.Errorf("primeira mensagem inesperada: %q", first.Messages[0].Text())
 	}
-	hasExa := false
+	hasExa, hasShot := false, false
 	for _, spec := range first.Tools {
 		hasExa = hasExa || spec.Name == agent.WebSearchTool
+		hasShot = hasShot || spec.Name == browser.ToolName
 	}
 	if !hasExa {
 		t.Error("com um provedor sem pesquisa própria, a pesquisa pela Exa deveria estar disponível")
+	}
+	if !hasShot {
+		t.Error("o host deveria ter a ferramenta de print")
+	}
+	if _, err := os.Stat(home.BrowserDir()); err == nil {
+		t.Error("o navegador só é baixado no primeiro print, não ao abrir a conversa")
 	}
 
 	sessions, err := agent.ListSessions(home.SessionsDir())

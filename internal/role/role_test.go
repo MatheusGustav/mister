@@ -84,7 +84,7 @@ func TestLoad_NativeRoles(t *testing.T) {
 			t.Errorf("o thread não pode ter %s", tool)
 		}
 	}
-	for _, tool := range []string{"ler_arquivo", "escrever_arquivo", "editar_arquivo", "excluir_arquivo", "listar_pasta", "buscar", "glob", "rodar_comando", "rodar_pesado", "pesquisar_web"} {
+	for _, tool := range []string{"ler_arquivo", "escrever_arquivo", "editar_arquivo", "excluir_arquivo", "listar_pasta", "buscar", "glob", "rodar_comando", "rodar_pesado", "tirar_print", "pesquisar_web"} {
 		if !has(host, tool) || !has(thread, tool) {
 			t.Errorf("host e thread deveriam ter %s", tool)
 		}
@@ -107,6 +107,9 @@ func TestLoad_NativeRoles(t *testing.T) {
 	}
 	if !strings.Contains(thread.Instructions, "Não edite o `AGENTS.md`") || !strings.Contains(thread.Instructions, "**Armadilha nova**") {
 		t.Error("o thread deveria relatar a armadilha e não editar o AGENTS.md")
+	}
+	if !strings.Contains(thread.Instructions, "você confere com `tirar_print` antes de devolver") || strings.Contains(thread.Instructions, "Você não confere tela") {
+		t.Error("o thread deveria conferir a tela que mexeu com tirar_print")
 	}
 	if thread.Model != "opus" || !strings.Contains(thread.Instructions, "Sem commit, push") {
 		t.Errorf("o agente thread não veio como esperado: modelo %q", thread.Model)

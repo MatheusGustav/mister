@@ -4,6 +4,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/MatheusGustav/mister/internal/browser"
 	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/provider"
 	"github.com/MatheusGustav/mister/internal/provider/anthropic"
@@ -21,12 +22,16 @@ type Deps struct {
 	// RipgrepSource is where 'mister install' downloads the ripgrep of the
 	// search tool from.
 	RipgrepSource RipgrepSource
+	// BrowserSource is where the screenshot tool downloads its browser from,
+	// on the first screenshot.
+	BrowserSource browser.Source
 }
 
 func DefaultDeps() Deps {
 	return Deps{
 		EmbeddingSources: embed.DefaultSources(),
 		RipgrepSource:    DefaultRipgrepSource(),
+		BrowserSource:    browser.DefaultSource(),
 		NewProvider: func() (provider.Provider, error) {
 			client, err := anthropic.New()
 			if err != nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatheusGustav/mister/internal/agent"
+	"github.com/MatheusGustav/mister/internal/browser"
 	"github.com/MatheusGustav/mister/internal/config"
 	"github.com/MatheusGustav/mister/internal/embed"
 	"github.com/MatheusGustav/mister/internal/memory"
@@ -128,6 +129,12 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	tools = append(tools, tool.ShellTools(tool.DefaultShellLimits())...)
 	tools = append(tools, web.NewExa().Tool())
 	tools = append(tools, mem.Tools()...)
+	shots := browser.New(home.BrowserDir(), cfg.BrowserTabs,
+		time.Duration(cfg.BrowserIdleMinutes)*time.Minute, time.Duration(cfg.BrowserLoadSeconds)*time.Second)
+	shots.Source = deps.BrowserSource
+	shots.Logf = func(format string, args ...any) { out.status("navegador: "+format, args...) }
+	defer shots.Close()
+	tools = append(tools, shots.Tool())
 	if err := registry.Register(tools...); err != nil {
 		return err
 	}

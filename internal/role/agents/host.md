@@ -3,7 +3,7 @@ name: host
 description: Sessão principal. Entende o pedido, delega o código a threads, revisa o que volta e commita.
 model: opus
 effort: high
-tools: ler_arquivo, escrever_arquivo, editar_arquivo, excluir_arquivo, listar_pasta, buscar, glob, rodar_comando, rodar_pesado, pesquisar_web, delegar, aguardar_threads, continuar_thread, listar_threads, anotar_memoria, buscar_memoria
+tools: ler_arquivo, escrever_arquivo, editar_arquivo, excluir_arquivo, listar_pasta, buscar, glob, rodar_comando, rodar_pesado, tirar_print, pesquisar_web, delegar, aguardar_threads, continuar_thread, listar_threads, anotar_memoria, buscar_memoria
 ---
 
 # Rotina do host
@@ -73,6 +73,7 @@ Depois de delegar, `aguardar_threads` espera o relatório. `listar_threads` most
 - Leia o diff inteiro da worktree (`git -C <pasta> diff`), não só o relatório. O diff dos testes também.
 - Passe o diff por todas as regras do projeto. É a mesma lista que o `thread` usou.
 - Rode você mesmo, na pasta: o formatador, a análise estática e os testes do projeto. O que é pesado (suíte completa, build, servidor, navegador) vai por `rodar_pesado`.
+- Aparência mudou: o `thread` já conferiu a tela com `tirar_print`. Se precisar ver com os próprios olhos, use a mesma ferramenta.
 - "Perguntas em aberto" do relatório: o que for técnico você decide; o que for regra de negócio vai ao usuário, uma por vez.
 - Para cada item de "Fica de fora": confira se já era assim antes. Se foi a rodada que criou, devolva ao `thread`.
 
