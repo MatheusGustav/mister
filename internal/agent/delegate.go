@@ -18,9 +18,47 @@ const (
 	waitMax     = 30 * time.Minute
 )
 
-// delegationTools are the tools only the host of the session can use.
+// AskHostTool is the tool a thread stops its task with to ask the host.
+const AskHostTool = "perguntar_host"
+
+// delegationTools are the tools the host follows its threads with, and the
+// one a thread asks the host with.
 func (rt *Runtime) delegationTools() []tool.Tool {
-	return []tool.Tool{rt.delegateTool(), rt.waitTool(), rt.continueTool(), rt.listTool()}
+	return []tool.Tool{rt.delegateTool(), rt.waitTool(), rt.continueTool(), rt.listTool(), rt.askTool()}
+}
+
+func (rt *Runtime) askTool() tool.Tool {
+	type input struct {
+		Pergunta string `json:"pergunta"`
+	}
+	return tool.Tool{
+		Name: AskHostTool,
+		Description: "Para a tarefa e pergunta ao host, que responde ele mesmo ou leva a pergunta ao usuário. Você fica parado até a resposta chegar e continua de onde estava. " +
+			"Use só para dúvida de regra de negócio (regra, plano, preço, o que o cliente final vê e paga) de que o resto da tarefa depende. " +
+			"Não use para escolha técnica: essa você decide e escreve no relatório. Se o resto da tarefa não depende da resposta, siga e ponha a pergunta no topo do relatório. " +
+			"Uma pergunta por chamada, curta, de sim ou não quando der, com o que o host precisa saber para responder sem reler o código.",
+		Schema: tool.Object([]string{"pergunta"}, map[string]any{
+			"pergunta": tool.Str("a pergunta, com o contexto e as opções que você vê"),
+		}),
+		Run: func(ctx context.Context, env *tool.Env, raw json.RawMessage) tool.Result {
+			if env.AgentID == HostID {
+				return tool.Fail("%s é para um thread perguntar a você. A sua pergunta vai direto ao usuário, na resposta.", AskHostTool)
+			}
+			in, err := tool.Decode[input](raw)
+			if err != nil {
+				return tool.Fail("%v", err)
+			}
+			question := strings.TrimSpace(in.Pergunta)
+			if question == "" {
+				return tool.Fail("'pergunta' veio vazia.")
+			}
+			answer, err := rt.ask(ctx, env.AgentID, question)
+			if err != nil {
+				return tool.Fail("a pergunta ficou sem resposta: %v", err)
+			}
+			return tool.OK("Resposta do host:\n%s", answer)
+		},
+	}
 }
 
 // onlyHost refuses the delegation tools to any agent that is not the host,
@@ -85,13 +123,13 @@ func (rt *Runtime) delegateTool() tool.Tool {
 
 			rt.mu.Lock()
 			_, exists := rt.threads[in.Nome]
-			running := rt.runningLocked()
+			running := rt.activeLocked()
 			rt.mu.Unlock()
 			if exists {
 				return tool.Fail("já existe um thread %q nesta sessão. Para mandar uma correção a ele, use continuar_thread; para outro assunto, escolha outro nome.", in.Nome)
 			}
 			if running >= rt.opts.Config.MaxThreads {
-				return tool.Fail("já há %d threads rodando, que é o limite desta máquina. Use aguardar_threads e delegue de novo quando um terminar.", running)
+				return tool.Fail("já há %d threads rodando ou esperando resposta, que é o limite desta máquina. Use aguardar_threads e delegue de novo quando um terminar.", running)
 			}
 
 			path := worktreePath(rt.opts.Project, in.Nome)
@@ -136,7 +174,8 @@ func (rt *Runtime) waitTool() tool.Tool {
 	}
 	return tool.Tool{
 		Name: "aguardar_threads",
-		Description: "Espera até algum thread terminar e devolve o relatório de cada thread terminado que ainda não foi lido. " +
+		Description: "Espera até algum thread terminar ou parar com uma pergunta, e devolve o relatório de cada thread terminado e a pergunta de cada thread parado que ainda não foram lidos. " +
+			"Thread parado com pergunta só volta a trabalhar quando você responde com continuar_thread. " +
 			"Se o tempo acabar antes, diz quem ainda está rodando: chame de novo para continuar esperando.",
 		Schema: tool.Object(nil, map[string]any{
 			"timeout_segundos": tool.Int(fmt.Sprintf("quanto esperar, em segundos (opcional, padrão %d, máximo %d)",
@@ -161,7 +200,11 @@ func (rt *Runtime) waitTool() tool.Tool {
 			defer timer.Stop()
 
 			for {
-				reports, running := rt.collect()
+				reports, running, waiting := rt.collect()
+				pending := ""
+				if len(waiting) > 0 {
+					pending = "\n\nParado esperando a sua resposta (continuar_thread): " + strings.Join(waiting, ", ")
+				}
 				if len(reports) > 0 {
 					if err := rt.saveMeta(); err != nil {
 						return tool.Fail("%s\n[a sessão não foi gravada: %v]", strings.Join(reports, "\n\n"), err)
@@ -170,27 +213,27 @@ func (rt *Runtime) waitTool() tool.Tool {
 					if len(running) > 0 {
 						out += "\n\nAinda rodando: " + strings.Join(running, ", ")
 					}
-					return tool.OK("%s", out)
+					return tool.OK("%s%s", out, pending)
 				}
 				if len(running) == 0 {
-					return tool.OK("nenhum thread rodando e nenhum relatório por ler.")
+					return tool.OK("nenhum thread rodando e nenhum relatório por ler.%s", pending)
 				}
 				select {
 				case <-rt.events:
 				case <-timer.C:
-					return tool.OK("passaram %s e nenhum thread terminou. Ainda rodando: %s. Chame aguardar_threads de novo para continuar esperando.",
-						wait, strings.Join(running, ", "))
+					return tool.OK("passaram %s e nenhum thread terminou. Ainda rodando: %s. Chame aguardar_threads de novo para continuar esperando.%s",
+						wait, strings.Join(running, ", "), pending)
 				case <-ctx.Done():
-					return tool.Fail("a espera foi cancelada. Ainda rodando: %s.", strings.Join(running, ", "))
+					return tool.Fail("a espera foi cancelada. Ainda rodando: %s.%s", strings.Join(running, ", "), pending)
 				}
 			}
 		},
 	}
 }
 
-// collect hands over the reports not yet delivered and the names of the
-// threads still running.
-func (rt *Runtime) collect() (reports, running []string) {
+// collect hands over the reports and the questions not yet delivered, and the
+// names of the threads still running and of the ones waiting for an answer.
+func (rt *Runtime) collect() (reports, running, waiting []string) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	for _, id := range rt.order {
@@ -198,13 +241,21 @@ func (rt *Runtime) collect() (reports, running []string) {
 		switch {
 		case t.meta.Status == StatusRunning:
 			running = append(running, id)
+		case t.meta.Status == StatusWaiting:
+			waiting = append(waiting, id)
+			if !t.meta.Asked {
+				t.meta.Asked = true
+				reports = append(reports, fmt.Sprintf("=== thread %s parou com uma pergunta — pasta %s, branch %s ===\n%s\n\n"+
+					"Ele está parado no meio da tarefa. Responda com continuar_thread: o que for técnico você decide; regra de negócio você pergunta ao usuário antes.",
+					id, t.meta.Root, t.meta.Branch, t.meta.Question))
+			}
 		case !t.meta.Reported:
 			t.meta.Reported = true
 			reports = append(reports, fmt.Sprintf("=== thread %s (%s) — pasta %s, branch %s ===\n%s",
 				id, t.meta.Status, t.meta.Root, t.meta.Branch, t.meta.Report))
 		}
 	}
-	return reports, running
+	return reports, running, waiting
 }
 
 func (rt *Runtime) continueTool() tool.Tool {
@@ -214,7 +265,8 @@ func (rt *Runtime) continueTool() tool.Tool {
 	}
 	return tool.Tool{
 		Name: "continuar_thread",
-		Description: "Manda uma mensagem a um thread que já terminou a rodada (uma correção da revisão, uma decisão que faltava). " +
+		Description: "Manda uma mensagem a um thread que já terminou a rodada (uma correção da revisão, uma decisão que faltava), " +
+			"ou responde a pergunta de um thread que parou no meio da tarefa. " +
 			"Ele continua na mesma worktree, com a conversa que já tinha. Devolve na hora; o relatório novo chega por aguardar_threads.",
 		Schema: tool.Object([]string{"nome", "mensagem"}, map[string]any{
 			"nome":     tool.Str("nome do thread"),
@@ -237,18 +289,26 @@ func (rt *Runtime) continueTool() tool.Tool {
 			if ok {
 				status = t.meta.Status
 			}
-			running := rt.runningLocked()
+			running := rt.activeLocked()
 			names := append([]string(nil), rt.order...)
 			rt.mu.Unlock()
 			switch {
 			case !ok:
 				return tool.Fail("não existe thread %q nesta sessão. Threads: %s", in.Nome, strings.Join(names, ", "))
+			case status == StatusWaiting:
+				if !rt.reply(in.Nome, in.Mensagem) {
+					return tool.Fail("o thread %s deixou de esperar a resposta. Veja o estado dele com listar_threads.", in.Nome)
+				}
+				if err := rt.saveMeta(); err != nil {
+					return tool.Fail("o thread %s recebeu a resposta e voltou a trabalhar, mas a sessão não foi gravada: %v", in.Nome, err)
+				}
+				return tool.OK("resposta entregue; o thread %s voltou a trabalhar de onde parou. Use aguardar_threads para receber o relatório.", in.Nome)
 			case status == StatusRunning:
 				return tool.Fail("o thread %s ainda está rodando. Espere ele terminar com aguardar_threads.", in.Nome)
 			case t.agent == nil:
 				return tool.Fail("a worktree do thread %s não existe mais; ele não pode continuar. Delegue de novo com outro nome.", in.Nome)
 			case running >= rt.opts.Config.MaxThreads:
-				return tool.Fail("já há %d threads rodando, que é o limite desta máquina. Espere um terminar.", running)
+				return tool.Fail("já há %d threads rodando ou esperando resposta, que é o limite desta máquina. Espere um terminar.", running)
 			}
 			rt.start(ctx, t, "", in.Mensagem)
 			if err := rt.saveMeta(); err != nil {

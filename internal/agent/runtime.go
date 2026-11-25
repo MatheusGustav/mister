@@ -68,6 +68,8 @@ type Runtime struct {
 type thread struct {
 	agent  *Agent
 	cancel context.CancelFunc
+	// answer delivers the host's answer to a waiting thread. Guarded by Runtime.mu.
+	answer chan string
 
 	// Guarded by Runtime.mu.
 	meta     AgentMeta
@@ -208,10 +210,17 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 	rt.mu.Unlock()
 
 	for _, tm := range meta.Threads {
-		if tm.Status == StatusRunning {
+		switch tm.Status {
+		case StatusRunning:
 			tm.Status = StatusInterrupted
 			tm.Report = "o programa foi encerrado enquanto este thread rodava. Use continuar_thread para retomar."
 			tm.Reported = false
+		case StatusWaiting:
+			tm.Status = StatusInterrupted
+			tm.Report = "o programa foi encerrado enquanto este thread esperava a resposta desta pergunta: " + tm.Question +
+				"\nUse continuar_thread para responder e retomar."
+			tm.Reported = false
+			tm.Question, tm.Asked = "", false
 		}
 		r, ok := rt.opts.Roles[tm.Role]
 		if !ok {
@@ -278,7 +287,14 @@ func (rt *Runtime) hostNotices() []string {
 	var out []string
 	for _, id := range rt.order {
 		t := rt.threads[id]
-		if t.meta.Status != StatusRunning && !t.meta.Reported && !t.noticed {
+		switch {
+		case t.noticed, t.meta.Status == StatusRunning:
+		case t.meta.Status == StatusWaiting:
+			if !t.meta.Asked {
+				t.noticed = true
+				out = append(out, fmt.Sprintf("o thread %s parou com uma pergunta e espera a resposta. Use aguardar_threads para ler.", id))
+			}
+		case !t.meta.Reported:
 			t.noticed = true
 			out = append(out, fmt.Sprintf("o thread %s %s. Use aguardar_threads para ler o relatório.", id, t.meta.Status))
 		}
@@ -312,11 +328,15 @@ func (rt *Runtime) start(ctx context.Context, t *thread, header, input string) {
 		switch {
 		case err == nil:
 			t.meta.Status, t.meta.Report = StatusDone, report
+		case errors.Is(err, context.Canceled) && t.meta.Question != "":
+			t.meta.Status = StatusInterrupted
+			t.meta.Report = "o thread foi interrompido enquanto esperava a resposta desta pergunta: " + t.meta.Question
 		case errors.Is(err, context.Canceled):
 			t.meta.Status, t.meta.Report = StatusInterrupted, "o thread foi interrompido antes de terminar."
 		default:
 			t.meta.Status, t.meta.Report = StatusFailed, "o thread falhou: "+err.Error()
 		}
+		t.meta.Question, t.meta.Asked, t.answer = "", false, nil
 		status := t.meta.Status
 		rt.mu.Unlock()
 
@@ -333,14 +353,65 @@ func (rt *Runtime) start(ctx context.Context, t *thread, header, input string) {
 	})
 }
 
-func (rt *Runtime) runningLocked() int {
+// activeLocked counts the threads that hold a place in the limit: the ones
+// running and the ones waiting for an answer, which go back to running.
+func (rt *Runtime) activeLocked() int {
 	n := 0
 	for _, t := range rt.threads {
-		if t.meta.Status == StatusRunning {
+		if t.meta.Status == StatusRunning || t.meta.Status == StatusWaiting {
 			n++
 		}
 	}
 	return n
+}
+
+// ask stops a thread on a question until the host answers it, and returns the
+// answer. The thread keeps its place and its conversation while it waits.
+func (rt *Runtime) ask(ctx context.Context, id, question string) (string, error) {
+	answer := make(chan string, 1)
+	rt.mu.Lock()
+	t, ok := rt.threads[id]
+	if !ok {
+		rt.mu.Unlock()
+		return "", fmt.Errorf("não existe thread %q nesta sessão", id)
+	}
+	t.answer = answer
+	t.meta.Status, t.meta.Question, t.meta.Asked = StatusWaiting, question, false
+	t.noticed = false
+	rt.mu.Unlock()
+
+	if err := rt.saveMeta(); err != nil && rt.opts.Hooks.OnNotice != nil {
+		rt.opts.Hooks.OnNotice(id, "não consegui gravar a sessão: "+err.Error())
+	}
+	if rt.opts.Hooks.OnNotice != nil {
+		rt.opts.Hooks.OnNotice(id, "thread parou com uma pergunta ao host")
+	}
+	select {
+	case rt.events <- struct{}{}:
+	default:
+	}
+
+	select {
+	case text := <-answer:
+		return text, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// reply hands the host's answer to a waiting thread, which goes back to work.
+// It reports false when the thread is not waiting.
+func (rt *Runtime) reply(id, text string) bool {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	t, ok := rt.threads[id]
+	if !ok || t.meta.Status != StatusWaiting || t.answer == nil {
+		return false
+	}
+	t.answer <- text
+	t.answer = nil
+	t.meta.Status, t.meta.Question, t.meta.Asked = StatusRunning, "", false
+	return true
 }
 
 var threadNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
@@ -393,12 +464,14 @@ func (rt *Runtime) Report() string {
 		switch {
 		case t.meta.Status == StatusRunning:
 			extra = fmt.Sprintf(" há %s, em %s", now.Sub(t.since).Round(time.Second), t.meta.Root)
+		case t.meta.Status == StatusWaiting:
+			extra = fmt.Sprintf(", em %s. Pergunta: %s", t.meta.Root, t.meta.Question)
 		case !t.finished.IsZero():
 			extra = fmt.Sprintf(" em %s, pasta %s", t.finished.Sub(t.since).Round(time.Second), t.meta.Root)
 		default:
 			extra = ", pasta " + t.meta.Root
 		}
-		if t.meta.Status != StatusRunning && !t.meta.Reported {
+		if t.meta.Status != StatusRunning && t.meta.Status != StatusWaiting && !t.meta.Reported {
 			extra += " (relatório ainda não lido)"
 		}
 		rows = append(rows, row{meta: t.meta, agent: t.agent, extra: extra})

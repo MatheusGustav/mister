@@ -66,6 +66,12 @@ O que este pedido pede de conferência a mais: <formatos, casos de borda, telas 
 
 Pergunta de regra de negócio não chega ao `thread` como dúvida. Ele recebe decisão, ou o ponto fica de fora.
 
+O `thread` pode parar no meio da tarefa com uma pergunta, quando uma dúvida de regra de negócio trava o resto. Ela chega pelo `aguardar_threads` e ele fica parado até você responder com `continuar_thread`:
+
+- O que for técnico, você decide e responde na hora.
+- Regra de negócio vai ao usuário, como pergunta curta de sim ou não, e a resposta dele volta ao `thread`.
+- Se a resposta muda algo que você levantou no código, refaça o levantamento desse ponto antes de responder e diga ao `thread` o que muda no resto da tarefa.
+
 Depois de delegar, `aguardar_threads` espera o relatório. `listar_threads` mostra o andamento, a memória usada por agente e a fila dos comandos pesados.
 
 ## 5. Revisar o que voltou

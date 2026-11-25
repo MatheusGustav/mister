@@ -684,3 +684,219 @@ func TestRuntime_DelegateNeedsGit(t *testing.T) {
 		t.Errorf("sem git, delegar deveria explicar o motivo: %s", result)
 	}
 }
+
+func ask(question string) *provider.Response {
+	return use(toolUse{id: "p", name: AskHostTool, input: map[string]any{"pergunta": question}})
+}
+
+func answer(name, text string) *provider.Response {
+	return use(toolUse{id: "r-" + name, name: "continuar_thread", input: map[string]any{"nome": name, "mensagem": text}})
+}
+
+func threadStatus(s *session, name string) string {
+	s.rt.mu.Lock()
+	defer s.rt.mu.Unlock()
+	return s.rt.threads[name].meta.Status
+}
+
+// A thread stops in the middle of its task with a question, the host receives
+// it, answers, and the thread carries on in the same round with the answer.
+func TestRuntime_ThreadAsksTheHostAndCarriesOn(t *testing.T) {
+	t.Parallel()
+	var question, afterAnswer string
+	var s *session
+	s = newSession(t, testConfig(),
+		func(n int, req provider.Request) (*provider.Response, error) {
+			switch n {
+			case 0:
+				return delegate("cobranca", "ajuste a cobrança"), nil
+			case 1:
+				return wait(), nil
+			case 2:
+				question = lastMessage(req)
+				if got := threadStatus(s, "cobranca"); got != StatusWaiting {
+					t.Errorf("com a pergunta feita o thread deveria estar %q, está %q", StatusWaiting, got)
+				}
+				if report := s.rt.Report(); !strings.Contains(report, "esperando resposta") || !strings.Contains(report, "Pergunta: cobra no cancelamento?") {
+					t.Errorf("listar_threads deveria mostrar o thread parado e a pergunta:\n%s", report)
+				}
+				return answer("cobranca", "não cobra"), nil
+			case 3:
+				return wait(), nil
+			default:
+				return say(lastMessage(req)), nil
+			}
+		},
+		func(n int, req provider.Request) (*provider.Response, error) {
+			if n == 0 {
+				return ask("  cobra no cancelamento?  "), nil
+			}
+			afterAnswer = lastMessage(req)
+			return say("relatório: fiz sem cobrar"), nil
+		})
+
+	got, err := s.rt.Send(context.Background(), "vai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"thread cobranca parou com uma pergunta", "cobra no cancelamento?", "Responda com continuar_thread"} {
+		if !strings.Contains(question, want) {
+			t.Errorf("a pergunta deveria chegar ao host por aguardar_threads com %q:\n%s", want, question)
+		}
+	}
+	if afterAnswer != "Resposta do host:\nnão cobra" {
+		t.Errorf("o thread deveria receber a resposta como resultado da ferramenta: %q", afterAnswer)
+	}
+	if !strings.Contains(got, "relatório: fiz sem cobrar") || !strings.Contains(got, "(terminou)") {
+		t.Errorf("depois da resposta o thread deveria terminar a mesma rodada:\n%s", got)
+	}
+	meta, err := s.store.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th := meta.Threads[0]; th.Status != StatusDone || th.Question != "" || th.Asked {
+		t.Errorf("a pergunta respondida não deveria ficar gravada: %+v", th)
+	}
+}
+
+func TestRuntime_WaitingThread(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.MaxThreads = 1
+	var results []string
+	var s *session
+	s = newSession(t, cfg,
+		func(n int, req provider.Request) (*provider.Response, error) {
+			results = append(results, lastMessage(req))
+			switch n {
+			case 0:
+				return delegate("duvida", "tarefa com dúvida"), nil
+			case 1:
+				return wait(), nil
+			case 2:
+				// The question was read: waiting again does not block nor repeat it.
+				return wait(), nil
+			case 3:
+				return delegate("outro", "outra tarefa"), nil
+			case 4:
+				return use(toolUse{id: "h", name: AskHostTool, input: map[string]any{"pergunta": "posso?"}}), nil
+			default:
+				return say("fim do turno"), nil
+			}
+		},
+		func(int, provider.Request) (*provider.Response, error) { return ask("qual o prazo?"), nil })
+
+	if _, err := s.rt.Send(context.Background(), "vai"); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) < 6 {
+		t.Fatalf("o host fez %d pedidos, quero 6", len(results))
+	}
+	if !strings.Contains(results[2], "qual o prazo?") {
+		t.Errorf("a primeira espera deveria trazer a pergunta:\n%s", results[2])
+	}
+	if strings.Contains(results[3], "qual o prazo?") || !strings.Contains(results[3], "Parado esperando a sua resposta (continuar_thread): duvida") {
+		t.Errorf("a segunda espera deveria voltar na hora, sem repetir a pergunta e lembrando quem espera:\n%s", results[3])
+	}
+	if !strings.Contains(results[4], "limite desta máquina") {
+		t.Errorf("o thread que espera resposta guarda o seu lugar no limite:\n%s", results[4])
+	}
+	if !strings.Contains(results[5], `o agente "host" não tem a ferramenta "perguntar_host"`) {
+		t.Errorf("o host não pergunta a si mesmo:\n%s", results[5])
+	}
+	// A custom host role that lists the tool is refused by the tool itself.
+	asked, _ := s.rt.opts.Registry.Get(AskHostTool)
+	if res := asked.Run(context.Background(), &tool.Env{AgentID: HostID}, json.RawMessage(`{"pergunta":"posso?"}`)); !res.IsError || !strings.Contains(res.Content, "é para um thread perguntar a você") {
+		t.Errorf("a ferramenta deveria recusar o host: %+v", res)
+	}
+
+	// The host ended its turn without answering: the next message reminds
+	// nothing, because the question was already read.
+	meta, err := s.store.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th := meta.Threads[0]; th.Status != StatusWaiting || th.Question != "qual o prazo?" || !th.Asked {
+		t.Errorf("o thread parado deveria ficar gravado com a pergunta: %+v", th)
+	}
+
+	// A session closed with the question pending tells the host what it was.
+	if err := s.rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := s.store.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th := closed.Threads[0]; th.Status != StatusInterrupted || !strings.Contains(th.Report, "esperava a resposta desta pergunta: qual o prazo?") || th.Question != "" {
+		t.Errorf("fechar com a pergunta pendente deveria guardar a pergunta no relatório: %+v", th)
+	}
+
+	// A crash leaves the waiting status on disk: resuming turns it into a
+	// report with the question.
+	opts := s.opts
+	opts.Registry = tool.NewRegistry()
+	if err := opts.Registry.Register(tool.FileTools()...); err != nil {
+		t.Fatal(err)
+	}
+	opts.Provider = &fakeProvider{handler: func(int, provider.Request) (*provider.Response, error) { return say("ok"), nil }}
+	rt, err := NewRuntime(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if err := rt.Resume(meta); err != nil {
+		t.Fatal(err)
+	}
+	rt.mu.Lock()
+	resumed := rt.threads["duvida"].meta
+	rt.mu.Unlock()
+	if resumed.Status != StatusInterrupted || resumed.Reported || resumed.Question != "" ||
+		!strings.Contains(resumed.Report, "esperava a resposta desta pergunta: qual o prazo?") {
+		t.Errorf("o thread que esperava deveria voltar interrompido, com a pergunta no relatório: %+v", resumed)
+	}
+}
+
+func TestRuntime_HostIsToldAboutAQuestionAskedMeanwhile(t *testing.T) {
+	t.Parallel()
+	s := newSession(t, testConfig(),
+		func(n int, req provider.Request) (*provider.Response, error) {
+			if n == 0 {
+				return delegate("solto", "tarefa"), nil
+			}
+			return say("ok"), nil
+		},
+		func(int, provider.Request) (*provider.Response, error) { return ask("pode apagar?"), nil })
+
+	if _, err := s.rt.Send(context.Background(), "delegue e volte"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for threadStatus(s, "solto") != StatusWaiting {
+		if time.Now().After(deadline) {
+			t.Fatal("o thread não chegou a perguntar")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for range 2 {
+		if _, err := s.rt.Send(context.Background(), "e agora?"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notices := 0
+	for i := range s.provider.count() {
+		req := s.provider.request(i)
+		if isThread(req) {
+			continue
+		}
+		last := req.Messages[len(req.Messages)-1]
+		for _, b := range last.Blocks {
+			if strings.Contains(b.Text, "[aviso] o thread solto parou com uma pergunta") {
+				notices++
+			}
+		}
+	}
+	if notices != 1 {
+		t.Errorf("o host deveria ser avisado uma vez da pergunta, foi %d", notices)
+	}
+}

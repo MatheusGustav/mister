@@ -76,6 +76,17 @@ func TestLoad_NativeRoles(t *testing.T) {
 		}
 		return false
 	}
+	if !has(thread, "perguntar_host") || has(host, "perguntar_host") {
+		t.Error("só o thread pergunta ao host")
+	}
+	for _, want := range []string{"Se o resto da tarefa depende da resposta, pare e pergunte com `perguntar_host`", "Se o resto não depende", "Escolha técnica não é motivo para parar"} {
+		if !strings.Contains(thread.Instructions, want) {
+			t.Errorf("o thread perdeu a regra de quando perguntar %q", want)
+		}
+	}
+	if !strings.Contains(host.Instructions, "refaça o levantamento desse ponto antes de responder") {
+		t.Error("o host deveria refazer o levantamento quando a resposta muda o que ele levantou")
+	}
 	for _, tool := range []string{"delegar", "aguardar_threads", "continuar_thread", "listar_threads"} {
 		if !has(host, tool) {
 			t.Errorf("o host deveria ter %s", tool)

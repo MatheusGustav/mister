@@ -19,8 +19,11 @@ import (
 
 // Status of an agent inside a session.
 const (
-	StatusIdle        = "parado"
-	StatusRunning     = "rodando"
+	StatusIdle    = "parado"
+	StatusRunning = "rodando"
+	// StatusWaiting is a thread stopped in the middle of its task until the
+	// host answers the question it asked.
+	StatusWaiting     = "esperando resposta"
 	StatusDone        = "terminou"
 	StatusFailed      = "falhou"
 	StatusInterrupted = "interrompido"
@@ -40,6 +43,10 @@ type AgentMeta struct {
 	Report string `json:"relatorio,omitempty"`
 	// Reported says the host already received the report.
 	Reported bool `json:"entregue,omitempty"`
+	// Question is what a waiting thread asked the host; Asked says the host
+	// already received it.
+	Question string `json:"pergunta,omitempty"`
+	Asked    bool   `json:"pergunta_entregue,omitempty"`
 }
 
 // SessionMeta is the content of a session file.
