@@ -34,11 +34,11 @@ func TestLocal_RealServer_RecallInPortuguese(t *testing.T) {
 	base := t.TempDir()
 	store := memory.Open(filepath.Join(base, "notas"), filepath.Join(base, "indice.json"), local, Thresholds())
 	notes := map[string]string{
-		"Celular Redmi":       "O celular de trabalho é um Redmi com 6 GB de RAM e 128 GB. Sobre a carga, veja [[Bateria do celular]]. O servidor fica em [[Servidor do cocar]].",
-		"Bateria do celular":  "A bateria do celular Redmi é de 5000 mAh e dura dois dias. O aparelho está em [[Celular Redmi]].",
-		"Servidor do cocar":   "O alias ssh é servidor, entra como root. A chave tem senha: rodar ssh-add antes, senão dá Permission denied.",
-		"Portas do Curumirim": "O ambiente de desenvolvimento usa as portas 8080, 3307 e 5174.",
-		"tuned powersave":     "Com o perfil powersave do tuned o CPU fica preso em 1200 MHz. Conferir no_turbo antes de investigar lentidão.",
+		"Celular Redmi":      "O celular de trabalho é um Redmi com 6 GB de RAM e 128 GB. Sobre a carga, veja [[Bateria do celular]]. O servidor fica em [[Servidor do alfa]].",
+		"Bateria do celular": "A bateria do celular Redmi é de 5000 mAh e dura dois dias. O aparelho está em [[Celular Redmi]].",
+		"Servidor do alfa":   "O alias ssh é servidor, entra como root. A chave tem senha: rodar ssh-add antes, senão dá Permission denied.",
+		"Portas do Beta":     "O ambiente de desenvolvimento usa as portas 8080, 3307 e 5174.",
+		"tuned powersave":    "Com o perfil powersave do tuned o CPU fica preso em 1200 MHz. Conferir no_turbo antes de investigar lentidão.",
 	}
 	for title, body := range notes {
 		if _, err := store.Write(title, body); err != nil {
@@ -65,8 +65,8 @@ func TestLocal_RealServer_RecallInPortuguese(t *testing.T) {
 		entry string
 	}{
 		{"quanta memória tem meu celular?", "celular-redmi"},
-		{"deu permission denied no ssh", "servidor-do-cocar"},
-		{"em qual porta roda o banco do curumirim?", "portas-do-curumirim"},
+		{"deu permission denied no ssh", "servidor-do-alfa"},
+		{"em qual porta roda o banco do beta?", "portas-do-beta"},
 		{"o notebook está lento, o processador não passa de 1.2 GHz", "tuned-powersave"},
 	}
 	for _, tt := range related {
@@ -86,7 +86,7 @@ func TestLocal_RealServer_RecallInPortuguese(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(names(got), ",")
-	if !strings.Contains(joined, "celular-redmi") || !strings.Contains(joined, "bateria-do-celular") || strings.Contains(joined, "servidor-do-cocar") {
+	if !strings.Contains(joined, "celular-redmi") || !strings.Contains(joined, "bateria-do-celular") || strings.Contains(joined, "servidor-do-alfa") {
 		t.Errorf("a caminhada deveria trazer o celular e a bateria, sem o servidor: %s", joined)
 	}
 
@@ -129,9 +129,9 @@ func TestLocal_RealServer_SimilarNotes(t *testing.T) {
 	base := t.TempDir()
 	store := memory.Open(filepath.Join(base, "notas"), filepath.Join(base, "indice.json"), local, Thresholds())
 	for title, body := range map[string]string{
-		"Celular Redmi":       "O celular de trabalho é um Redmi com 6 GB de RAM e 128 GB. A depuração USB fica ligada e o ADB tem travas de segurança.",
-		"Portas do Curumirim": "O ambiente de desenvolvimento usa as portas 8080, 3307 e 5174. O Cocar usa 8000, 3306 e 5173.",
-		"Servidor do cocar":   "O alias ssh é servidor, entra como root. A chave tem senha: rodar ssh-add antes, senão dá Permission denied.",
+		"Celular Redmi":    "O celular de trabalho é um Redmi com 6 GB de RAM e 128 GB. A depuração USB fica ligada e o ADB tem travas de segurança.",
+		"Portas do Beta":   "O ambiente de desenvolvimento usa as portas 8080, 3307 e 5174. O Alfa usa 8000, 3306 e 5173.",
+		"Servidor do alfa": "O alias ssh é servidor, entra como root. A chave tem senha: rodar ssh-add antes, senão dá Permission denied.",
 	} {
 		if _, err := store.Write(title, body); err != nil {
 			t.Fatal(err)
@@ -142,8 +142,8 @@ func TestLocal_RealServer_SimilarNotes(t *testing.T) {
 
 	same := []struct{ title, content, want string }{
 		{"Smartphone", "Meu telefone de trabalho tem 6 GB de memória e 128 de armazenamento, é um Redmi.", "celular-redmi"},
-		{"Acesso SSH produção", "Para entrar no servidor do Cocar: ssh servidor (root). Precisa do ssh-add porque a chave tem senha.", "servidor-do-cocar"},
-		{"Portas dev", "Curumirim sobe em 8080 (web), 3307 (mysql) e 5174 (vite).", "portas-do-curumirim"},
+		{"Acesso SSH produção", "Para entrar no servidor do Alfa: ssh servidor (root). Precisa do ssh-add porque a chave tem senha.", "servidor-do-alfa"},
+		{"Portas dev", "Beta sobe em 8080 (web), 3307 (mysql) e 5174 (vite).", "portas-do-beta"},
 	}
 	for _, tt := range same {
 		got, err := store.Similar(ctx, tt.title, tt.content)
@@ -157,7 +157,7 @@ func TestLocal_RealServer_SimilarNotes(t *testing.T) {
 	different := []struct{ title, content string }{
 		{"Tablet Redmi Pad 2", "O tablet pessoal é um Redmi Pad 2 com 8 GB e 256 GB, Android 16, sem travas."},
 		{"Bateria do celular", "A bateria do Redmi é de 5000 mAh e dura dois dias."},
-		{"Portas do Cocar em produção", "Em produção o Cocar fica atrás do nginx na 443; o MySQL não é exposto."},
+		{"Portas do Alfa em produção", "Em produção o Alfa fica atrás do nginx na 443; o MySQL não é exposto."},
 		{"Asaas", "O webhook do Asaas tem que responder 200 exato; outro 2xx conta como falha."},
 	}
 	for _, tt := range different {
