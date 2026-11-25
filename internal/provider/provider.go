@@ -107,8 +107,6 @@ type Request struct {
 	// without the capability.
 	WebSearch *WebSearch
 	Messages  []Message
-	// NoToolCalls keeps the tool definitions in the prefix but forbids calls.
-	NoToolCalls bool
 	// OnText receives the text of the answer as it is generated.
 	OnText func(delta string)
 }
