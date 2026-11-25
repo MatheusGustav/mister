@@ -136,6 +136,16 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	if err != nil {
 		return err
 	}
+	// A resumed session keeps the agent and the model it started with, unless
+	// the flags ask for others.
+	if saved != nil {
+		if opts.role == "" {
+			opts.role = saved.Host.Role
+		}
+		if opts.model == "" {
+			opts.model = saved.Host.Model
+		}
+	}
 	store := agent.OpenStore(home.SessionsDir(), sessionID)
 	past := memory.OpenSessions(home.SessionsDir(), local, embed.SessionThreshold, sessionID)
 	// Sessions closed since the last run are indexed in the background, so the

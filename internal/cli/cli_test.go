@@ -425,3 +425,35 @@ func TestChat_SessionWithoutMessagesIsNotSaved(t *testing.T) {
 		t.Errorf("--continue deveria retomar a sessão com conversa (2 mensagens mais a nova), mandou %d", got)
 	}
 }
+
+func TestChat_ResumeKeepsTheAgentAndTheModel(t *testing.T) {
+	home, _ := isolate(t)
+	if err := os.MkdirAll(home.RolesDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	revisor := "---\nname: revisor\nmodel: opus\ntools: ler_arquivo\n---\ninstruções do revisor"
+	if err := os.WriteFile(filepath.Join(home.RolesDir(), "revisor.md"), []byte(revisor), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ask := func(input string, args ...string) provider.Request {
+		t.Helper()
+		prov := &scriptedProvider{answer: func(provider.Request) string { return "ok" }}
+		if _, _, err := run(t, fakeDeps(prov), input, args...); err != nil {
+			t.Fatal(err)
+		}
+		return prov.requests[0]
+	}
+
+	first := ask("começo\n", "--agent", "revisor", "--model", "sonnet")
+	if first.Model != "claude-sonnet-5-5" || !strings.Contains(first.System, "instruções do revisor") {
+		t.Fatalf("sessão nova: modelo %q, instruções %q", first.Model, first.System)
+	}
+	resumed := ask("de novo\n", "--continue")
+	if resumed.Model != "claude-sonnet-5-5" || !strings.Contains(resumed.System, "instruções do revisor") {
+		t.Errorf("a retomada deveria manter o agente e o modelo: modelo %q, instruções %q", resumed.Model, resumed.System)
+	}
+	changed := ask("outro modelo\n", "--continue", "--model", "haiku")
+	if changed.Model != "claude-haiku-5-5" || !strings.Contains(changed.System, "instruções do revisor") {
+		t.Errorf("a flag deveria trocar só o modelo: modelo %q, instruções %q", changed.Model, changed.System)
+	}
+}
