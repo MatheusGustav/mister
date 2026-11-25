@@ -12,10 +12,7 @@ import (
 
 func TestStore_HistoryRoundTrip(t *testing.T) {
 	t.Parallel()
-	store, err := OpenStore(t.TempDir(), "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := OpenStore(t.TempDir(), "s1")
 	if history, err := store.Load("host"); err != nil || history != nil {
 		t.Fatalf("agente sem histórico: %v, %v", history, err)
 	}
@@ -51,10 +48,7 @@ func TestStore_HistoryRoundTrip(t *testing.T) {
 
 func TestStore_Load_IgnoresLineCutByCrash(t *testing.T) {
 	t.Parallel()
-	store, err := OpenStore(t.TempDir(), "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := OpenStore(t.TempDir(), "s1")
 	if err := store.Append("host", provider.UserText("inteira")); err != nil {
 		t.Fatal(err)
 	}
@@ -94,10 +88,7 @@ func TestNewSessionID(t *testing.T) {
 
 func TestReadTranscript_KeepsWhatCompactionDropped(t *testing.T) {
 	t.Parallel()
-	store, err := OpenStore(t.TempDir(), "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := OpenStore(t.TempDir(), "s1")
 	for _, text := range []string{"antes um", "antes dois"} {
 		if err := store.Append("host", provider.UserText(text)); err != nil {
 			t.Fatal(err)
@@ -132,10 +123,7 @@ func TestListSessions(t *testing.T) {
 		t.Fatalf("pasta que não existe: %v, %v", sessions, err)
 	}
 	for _, id := range []string{"antiga", "nova"} {
-		store, err := OpenStore(dir, id)
-		if err != nil {
-			t.Fatal(err)
-		}
+		store := OpenStore(dir, id)
 		if err := store.SaveMeta(SessionMeta{ID: id, Project: "/p", Created: time.Now()}); err != nil {
 			t.Fatal(err)
 		}

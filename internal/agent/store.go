@@ -61,13 +61,10 @@ type Store struct {
 
 const sessionFile = "sessao.json"
 
-// OpenStore opens (creating if needed) the directory of a session.
-func OpenStore(sessionsDir, id string) (*Store, error) {
-	dir := filepath.Join(sessionsDir, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("criando a pasta da sessão: %w", err)
-	}
-	return &Store{dir: dir}, nil
+// OpenStore names the directory of a session. The directory is created by the
+// first write, so a session nobody spoke in leaves nothing on disk.
+func OpenStore(sessionsDir, id string) *Store {
+	return &Store{dir: filepath.Join(sessionsDir, id)}
 }
 
 func (s *Store) Dir() string { return s.dir }
@@ -101,6 +98,9 @@ func (s *Store) write(agentID string, rec record) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return fmt.Errorf("criando a pasta da sessão: %w", err)
+	}
 	f, err := os.OpenFile(s.historyPath(agentID), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("abrindo o histórico de %s: %w", agentID, err)
@@ -164,6 +164,9 @@ func (s *Store) SaveMeta(meta SessionMeta) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return fmt.Errorf("criando a pasta da sessão: %w", err)
+	}
 	tmp := filepath.Join(s.dir, sessionFile+".tmp")
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("gravando a sessão: %w", err)

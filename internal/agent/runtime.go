@@ -256,6 +256,12 @@ func (rt *Runtime) saveMeta() error {
 		return nil
 	}
 	rt.mu.Lock()
+	// Nothing is saved before the first message: a session opened and closed
+	// without a word must not be the one --continue picks.
+	if !rt.started {
+		rt.mu.Unlock()
+		return nil
+	}
 	meta := SessionMeta{ID: rt.opts.SessionID, Project: rt.opts.Project, Created: rt.created, Host: rt.hostMeta}
 	for _, id := range rt.order {
 		meta.Threads = append(meta.Threads, rt.threads[id].meta)

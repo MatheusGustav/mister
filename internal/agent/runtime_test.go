@@ -79,10 +79,7 @@ func newSession(t *testing.T, cfg config.Config, host, threads func(n int, req p
 	if err := registry.Register(tools...); err != nil {
 		t.Fatal(err)
 	}
-	store, err := OpenStore(t.TempDir(), "sessao-teste")
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := OpenStore(t.TempDir(), "sessao-teste")
 
 	var mu sync.Mutex
 	hostN, threadN := 0, 0

@@ -175,10 +175,7 @@ func TestLocal_RealServer_PastSessions(t *testing.T) {
 	local := realServer(t)
 	dir := t.TempDir()
 	write := func(id, project string, pairs ...string) {
-		store, err := agent.OpenStore(dir, id)
-		if err != nil {
-			t.Fatal(err)
-		}
+		store := agent.OpenStore(dir, id)
 		for i := 0; i+1 < len(pairs); i += 2 {
 			for _, msg := range []provider.Message{
 				provider.UserText(pairs[i]),

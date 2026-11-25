@@ -398,3 +398,30 @@ func TestShorten(t *testing.T) {
 		})
 	}
 }
+
+func TestChat_SessionWithoutMessagesIsNotSaved(t *testing.T) {
+	home, _ := isolate(t)
+	prov := &scriptedProvider{answer: func(provider.Request) string { return "conversa" }}
+	if _, _, err := run(t, fakeDeps(prov), "uma pergunta\n"); err != nil {
+		t.Fatal(err)
+	}
+	// Opened and closed without a word to the host.
+	if _, _, err := run(t, fakeDeps(prov), "/help\n"); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := agent.ListSessions(home.SessionsDir())
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("só a sessão com conversa deveria estar gravada: %+v, %v", sessions, err)
+	}
+	if dirs, _ := os.ReadDir(home.SessionsDir()); len(dirs) != 1 {
+		t.Errorf("a sessão sem mensagem deixou uma pasta: %d pastas", len(dirs))
+	}
+
+	prov2 := &scriptedProvider{answer: func(provider.Request) string { return "retomada" }}
+	if _, _, err := run(t, fakeDeps(prov2), "outra pergunta\n", "--continue"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(prov2.requests[0].Messages); got != 3 {
+		t.Errorf("--continue deveria retomar a sessão com conversa (2 mensagens mais a nova), mandou %d", got)
+	}
+}

@@ -136,10 +136,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	if err != nil {
 		return err
 	}
-	store, err := agent.OpenStore(home.SessionsDir(), sessionID)
-	if err != nil {
-		return err
-	}
+	store := agent.OpenStore(home.SessionsDir(), sessionID)
 	past := memory.OpenSessions(home.SessionsDir(), local, embed.SessionThreshold, sessionID)
 	// Sessions closed since the last run are indexed in the background, so the
 	// first message does not wait for it.

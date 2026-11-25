@@ -58,10 +58,7 @@ func TestExchanges(t *testing.T) {
 // writeSession saves a session with one agent transcript.
 func writeSession(t *testing.T, dir, id, project, agentID string, messages ...provider.Message) {
 	t.Helper()
-	store, err := agent.OpenStore(dir, id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := agent.OpenStore(dir, id)
 	for _, m := range messages {
 		if err := store.Append(agentID, m); err != nil {
 			t.Fatal(err)
@@ -159,10 +156,7 @@ func TestSessions_IndexOnlyWhatChanged(t *testing.T) {
 
 	// A session that got new messages is indexed again; a deleted one leaves.
 	time.Sleep(10 * time.Millisecond)
-	store, err := agent.OpenStore(dir, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := agent.OpenStore(dir, "s1")
 	for _, m := range exchange("mais uma pergunta sobre o celular redmi e bateria", "mais uma resposta sobre o celular redmi e bateria") {
 		if err := store.Append(agent.HostID, m); err != nil {
 			t.Fatal(err)
