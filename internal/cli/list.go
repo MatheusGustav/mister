@@ -17,10 +17,10 @@ import (
 
 func newRolesCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "agentes",
+		Use:   "agents",
 		Short: "Lista os agentes disponíveis nesta pasta",
 		Long: "Os agentes nativos (host e thread) podem ser trocados e novos agentes criados com um arquivo .md\n" +
-			"em ~/.mister/agentes ou em .mister/agentes no projeto. O arquivo abre com um cabeçalho:\n\n" +
+			"em ~/.mister/agents ou em .mister/agents no projeto. O arquivo abre com um cabeçalho:\n\n" +
 			"  ---\n  name: documentador\n  description: só escreve documentação\n  model: sonnet\n  effort: medium\n" +
 			"  tools: ler_arquivo, escrever_arquivo, editar_arquivo, listar_pasta, buscar, glob\n  ---\n  <instruções do agente>",
 		Args: cobra.NoArgs,
@@ -33,7 +33,7 @@ func newRolesCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("descobrindo a pasta atual: %w", err)
 			}
-			roles, err := role.Load(home.RolesDir(), filepath.Join(project, ".mister", "agentes"))
+			roles, err := role.Load(home.RolesDir(), filepath.Join(project, ".mister", "agents"))
 			if err != nil {
 				return err
 			}
@@ -56,7 +56,7 @@ func newRolesCommand() *cobra.Command {
 
 func newSessionsCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "sessoes",
+		Use:   "sessions",
 		Short: "Lista as sessões guardadas",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

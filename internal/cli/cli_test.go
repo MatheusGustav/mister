@@ -83,8 +83,8 @@ func TestRoot_RejectsArguments(t *testing.T) {
 	if _, _, err := run(t, DefaultDeps(), "", "comando-que-nao-existe"); err == nil {
 		t.Error("um argumento solto deveria ser erro de uso")
 	}
-	if _, _, err := run(t, DefaultDeps(), "", "--continuar", "--sessao", "x"); err == nil {
-		t.Error("--continuar e --sessao juntos deveriam ser recusados")
+	if _, _, err := run(t, DefaultDeps(), "", "--continue", "--session", "x"); err == nil {
+		t.Error("--continue e --session juntos deveriam ser recusados")
 	}
 }
 
@@ -112,7 +112,7 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 		return "resposta " + string(rune('0'+len(req.Messages)/2+1))
 	}}
 
-	stdout, stderr, err := run(t, fakeDeps(prov), "primeira pergunta\n\n/memoria\nsegunda pergunta\n/sair\nnunca lida\n")
+	stdout, stderr, err := run(t, fakeDeps(prov), "primeira pergunta\n\n/memory\nsegunda pergunta\n/exit\nnunca lida\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 
 	// Resuming continues the same conversation.
 	prov2 := &scriptedProvider{answer: func(provider.Request) string { return "retomada" }}
-	stdout, stderr, err = run(t, fakeDeps(prov2), "terceira pergunta\n", "--continuar")
+	stdout, stderr, err = run(t, fakeDeps(prov2), "terceira pergunta\n", "--continue")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,27 +159,27 @@ func TestChat_TalksToTheHostAndSavesTheSession(t *testing.T) {
 	if got := len(prov2.requests[0].Messages); got != 5 {
 		t.Errorf("a retomada deveria mandar as 4 mensagens salvas mais a nova, mandou %d", got)
 	}
-	if _, _, err := run(t, fakeDeps(prov2), "", "--sessao", "nao-existe"); err == nil || !strings.Contains(err.Error(), "não existe a sessão") {
+	if _, _, err := run(t, fakeDeps(prov2), "", "--session", "nao-existe"); err == nil || !strings.Contains(err.Error(), "não existe a sessão") {
 		t.Errorf("sessão desconhecida: %v", err)
 	}
 
-	out, _, err := run(t, DefaultDeps(), "", "sessoes")
+	out, _, err := run(t, DefaultDeps(), "", "sessions")
 	if err != nil || !strings.Contains(out, sessions[0].ID) || !strings.Contains(out, project) {
-		t.Errorf("'mister sessoes' deveria listar a sessão: %q, %v", out, err)
+		t.Errorf("'mister sessions' deveria listar a sessão: %q, %v", out, err)
 	}
 }
 
 func TestChat_ResumeWithoutSession(t *testing.T) {
 	isolate(t)
 	prov := &scriptedProvider{answer: func(provider.Request) string { return "x" }}
-	if _, _, err := run(t, fakeDeps(prov), "", "--continuar"); err == nil || !strings.Contains(err.Error(), "nenhuma sessão guardada") {
+	if _, _, err := run(t, fakeDeps(prov), "", "--continue"); err == nil || !strings.Contains(err.Error(), "nenhuma sessão guardada") {
 		t.Errorf("erro = %v", err)
 	}
 }
 
 func TestRoles_ListsNativeAndCustom(t *testing.T) {
 	home, project := isolate(t)
-	dir := filepath.Join(project, ".mister", "agentes")
+	dir := filepath.Join(project, ".mister", "agents")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestRoles_ListsNativeAndCustom(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "documentador.md"), []byte(custom), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := run(t, DefaultDeps(), "", "agentes")
+	out, _, err := run(t, DefaultDeps(), "", "agents")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,14 +199,14 @@ func TestRoles_ListsNativeAndCustom(t *testing.T) {
 
 	// A role created by a file is usable as the main agent, with no code change.
 	prov := &scriptedProvider{answer: func(provider.Request) string { return "documentado" }}
-	if _, _, err := run(t, fakeDeps(prov), "documente\n", "--agente", "documentador"); err != nil {
+	if _, _, err := run(t, fakeDeps(prov), "documente\n", "--agent", "documentador"); err != nil {
 		t.Fatal(err)
 	}
 	req := prov.requests[0]
 	if req.System != "Você só escreve documentação." || req.Model != "claude-sonnet-5-5" || len(req.Tools) != 2 {
 		t.Errorf("o agente novo não foi aplicado: system=%q model=%q tools=%d", req.System, req.Model, len(req.Tools))
 	}
-	if _, _, err := run(t, fakeDeps(prov), "", "--agente", "fantasma"); err == nil {
+	if _, _, err := run(t, fakeDeps(prov), "", "--agent", "fantasma"); err == nil {
 		t.Error("agente que não existe deveria dar erro")
 	}
 	_ = home
@@ -255,7 +255,7 @@ func TestInstall(t *testing.T) {
 	deps := DefaultDeps()
 	deps.EmbeddingSources = fakeSources(t)
 
-	out, _, err := run(t, deps, "", "install", "--destino", dest)
+	out, _, err := run(t, deps, "", "install", "--dest", dest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestInstall(t *testing.T) {
 	if err := os.WriteFile(home.ConfigFile(), []byte(`{"max_threads": 7}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, deps, "", "install", "--destino", dest)
+	out, _, err = run(t, deps, "", "install", "--dest", dest)
 	if err != nil || !strings.Contains(out, "configuração mantida") || !strings.Contains(out, "já instalado") {
 		t.Errorf("segunda instalação: %q, %v", out, err)
 	}
@@ -312,7 +312,7 @@ func TestInstall(t *testing.T) {
 	if err := os.WriteFile(home.ConfigFile(), []byte(`{"embedding": {"url": "http://localhost:11434/v1", "modelo": "outro"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err = run(t, deps, "", "install", "--destino", dest)
+	out, _, err = run(t, deps, "", "install", "--dest", dest)
 	if err != nil || !strings.Contains(out, "memória usando o servidor de embedding em http://localhost:11434/v1") {
 		t.Errorf("instalação com servidor próprio: %q, %v", out, err)
 	}
@@ -328,7 +328,7 @@ func TestInstall_EmbeddingDownloadFails(t *testing.T) {
 	deps.EmbeddingSources.ModelSHA256 = strings.Repeat("0", 64)
 	dest := filepath.Join(t.TempDir(), "bin")
 
-	_, _, err := run(t, deps, "", "install", "--destino", dest)
+	_, _, err := run(t, deps, "", "install", "--dest", dest)
 	if err == nil || !strings.Contains(err.Error(), "o binário e a configuração foram instalados") {
 		t.Fatalf("erro = %v; quero dizer o que ficou instalado e o que não", err)
 	}

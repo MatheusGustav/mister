@@ -97,7 +97,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	if err != nil {
 		return fmt.Errorf("descobrindo a pasta atual: %w", err)
 	}
-	roles, err := role.Load(home.RolesDir(), filepath.Join(project, ".mister", "agentes"))
+	roles, err := role.Load(home.RolesDir(), filepath.Join(project, ".mister", "agents"))
 	if err != nil {
 		return err
 	}
@@ -186,7 +186,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 		}
 		out.status("sessão %s retomada (%d threads)", sessionID, len(saved.Threads))
 	} else {
-		out.status("sessão %s em %s — /ajuda mostra os comandos", sessionID, project)
+		out.status("sessão %s em %s — /help mostra os comandos", sessionID, project)
 	}
 
 	return chatLoop(ctx, cancel, cmd.InOrStdin(), out, rt)
@@ -259,13 +259,13 @@ func chatLoop(ctx context.Context, cancel context.CancelFunc, in io.Reader, out 
 		switch line {
 		case "":
 			continue
-		case "/sair":
+		case "/exit":
 			return nil
-		case "/memoria":
+		case "/memory":
 			out.status("%s", rt.Report())
 			continue
-		case "/ajuda":
-			out.status("/memoria  agentes, memória usada por agente e fila de comandos pesados\n/sair     encerra\nCtrl+C    interrompe a resposta em andamento")
+		case "/help":
+			out.status("/memory  agentes, memória usada por agente e fila de comandos pesados\n/exit    encerra\nCtrl+C   interrompe a resposta em andamento")
 			continue
 		}
 
@@ -307,7 +307,7 @@ func pickSession(home config.Home, project string, opts chatOptions) (string, *a
 				return s.ID, &s, nil
 			}
 		}
-		return "", nil, fmt.Errorf("não existe a sessão %q; veja 'mister sessoes'", opts.session)
+		return "", nil, fmt.Errorf("não existe a sessão %q; veja 'mister sessions'", opts.session)
 	case opts.resume:
 		for _, s := range sessions {
 			if s.Project == project {

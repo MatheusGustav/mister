@@ -86,7 +86,7 @@ func newInstallCommand(deps Deps) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&dest, "destino", "", "pasta onde o binário é instalado (padrão: ~/.local/bin)")
+	cmd.Flags().StringVar(&dest, "dest", "", "pasta onde o binário é instalado (padrão: ~/.local/bin)")
 	return cmd
 }
 

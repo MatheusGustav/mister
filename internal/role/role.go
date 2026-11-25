@@ -1,6 +1,6 @@
 // Package role loads agent roles: instructions, allowed tools and model. A
 // role is a markdown file with a small header, so a new role needs no code.
-// To the user a role is an "agente" ('mister agentes', ~/.mister/agentes); the
+// To the user a role is an "agente" ('mister agents', ~/.mister/agents); the
 // code keeps "role" for the definition and "agent" for the one running.
 package role
 
@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-//go:embed agentes/*.md
+//go:embed agents/*.md
 var native embed.FS
 
 // Names of the native roles.
@@ -47,12 +47,12 @@ func ValidEffort(effort string) bool { return validEfforts[effort] }
 func Load(dirs ...string) (map[string]Role, error) {
 	roles := make(map[string]Role)
 
-	entries, err := native.ReadDir("agentes")
+	entries, err := native.ReadDir("agents")
 	if err != nil {
 		return nil, fmt.Errorf("lendo os agentes nativos: %w", err)
 	}
 	for _, e := range entries {
-		data, err := native.ReadFile("agentes/" + e.Name())
+		data, err := native.ReadFile("agents/" + e.Name())
 		if err != nil {
 			return nil, fmt.Errorf("lendo o agente nativo %s: %w", e.Name(), err)
 		}
