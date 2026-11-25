@@ -94,6 +94,20 @@ func TestLoad_NativeRoles(t *testing.T) {
 			t.Errorf("o host perdeu a instrução de escolha de modelo %q", want)
 		}
 	}
+	for _, want := range []string{
+		"moram no `AGENTS.md`, na raiz do projeto",
+		"confira se algum item já cobre",
+		"com a data e a origem entre parênteses no fim",
+		"Item que deixou de valer",
+		"Só grave depois de ele dizer que pode",
+	} {
+		if !strings.Contains(host.Instructions, want) {
+			t.Errorf("o host perdeu a regra das armadilhas %q", want)
+		}
+	}
+	if !strings.Contains(thread.Instructions, "Não edite o `AGENTS.md`") || !strings.Contains(thread.Instructions, "**Armadilha nova**") {
+		t.Error("o thread deveria relatar a armadilha e não editar o AGENTS.md")
+	}
 	if thread.Model != "opus" || !strings.Contains(thread.Instructions, "Sem commit, push") {
 		t.Errorf("o agente thread não veio como esperado: modelo %q", thread.Model)
 	}

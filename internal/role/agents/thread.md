@@ -29,6 +29,7 @@ Se faltar o pedido, não comece: devolva pedindo.
 - Nada sai pra fora: não dispare mensagem, e-mail nem cobrança, e não chame serviço de pagamento fora dos testes.
 - Nunca mostre valor de arquivo de ambiente. Só o nome da variável.
 - Sem arquivo temporário dentro do repositório.
+- Não edite o `AGENTS.md` nem os agentes do projeto (`.mister/agents`). Armadilha nova você relata no relatório; quem propõe ao usuário é o `host`.
 - O que é pesado (servidor do projeto, navegador, Playwright, suíte completa, build) roda por `rodar_pesado`, que tem fila: a máquina aguenta um por vez.
 
 ## Decisões

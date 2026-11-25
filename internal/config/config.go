@@ -80,7 +80,7 @@ func (h Home) ConfigFile() string   { return filepath.Join(h.Dir, "config.json")
 func (h Home) RolesDir() string     { return filepath.Join(h.Dir, "agents") }
 func (h Home) SessionsDir() string  { return filepath.Join(h.Dir, "sessions") }
 func (h Home) MemoryDir() string    { return filepath.Join(h.Dir, "memory") }
-func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "MISTER.md") }
+func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "AGENTS.md") }
 func (h Home) EmbeddingDir() string { return filepath.Join(h.Dir, "embedding") }
 func (h Home) IndexFile() string    { return filepath.Join(h.Dir, "indice.json") }
 

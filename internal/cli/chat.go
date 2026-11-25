@@ -27,8 +27,9 @@ import (
 	"github.com/MatheusGustav/mister/internal/web"
 )
 
-// ProjectRulesFile holds the rules of a project, at its root.
-const ProjectRulesFile = "MISTER.md"
+// ProjectRulesFile holds the rules of a project, at its root. It is the file
+// other AI agents read too.
+const ProjectRulesFile = "AGENTS.md"
 
 type chatOptions struct {
 	resume  bool
