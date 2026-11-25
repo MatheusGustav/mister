@@ -19,6 +19,8 @@ import (
 type Result struct {
 	Content string
 	IsError bool
+	// Images are pictures the model sees after the content.
+	Images []provider.Image
 }
 
 func OK(format string, args ...any) Result {

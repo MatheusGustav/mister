@@ -64,6 +64,37 @@ func TestAgent_Run_ExecutesToolAndFeedsResultBack(t *testing.T) {
 	}
 }
 
+func TestAgent_Run_ToolImagesGoBackToTheModel(t *testing.T) {
+	t.Parallel()
+	picture := []byte(strings.Repeat("p", 2048))
+	shot := simpleTool("print", false, func(context.Context) tool.Result {
+		res := tool.OK("um print")
+		res.Images = []provider.Image{{Label: "desktop", MediaType: "image/png", Data: picture}}
+		return res
+	})
+	h := newHarness(t, Settings{}, func(n int, _ provider.Request) (*provider.Response, error) {
+		if n == 0 {
+			return use(toolUse{id: "t1", name: "print", input: map[string]any{}}), nil
+		}
+		return say("vi"), nil
+	}, shot)
+
+	if _, err := h.agent.Run(context.Background(), "tire um print"); err != nil {
+		t.Fatal(err)
+	}
+	result := h.provider.request(1).Messages[2].Blocks[0]
+	if result.Text != "um print" || len(result.Images) != 1 || result.Images[0].Label != "desktop" ||
+		result.Images[0].MediaType != "image/png" || string(result.Images[0].Data) != string(picture) {
+		t.Errorf("a imagem não chegou ao modelo junto do resultado: %+v", result)
+	}
+	if saved := h.journal.appends[2].Blocks[0]; len(saved.Images) != 1 {
+		t.Errorf("a imagem não foi para o histórico gravado: %+v", saved)
+	}
+	if stats := h.agent.Stats(); stats.HistoryBytes < len(picture) {
+		t.Errorf("o histórico mede %d bytes, mas guarda uma imagem de %d", stats.HistoryBytes, len(picture))
+	}
+}
+
 func TestAgent_Run_ToolErrorsGoBackToTheModel(t *testing.T) {
 	t.Parallel()
 	failing := simpleTool("falha", false, func(context.Context) tool.Result { return tool.Fail("deu errado, tente X") })

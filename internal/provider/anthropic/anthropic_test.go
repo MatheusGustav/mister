@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -347,5 +348,43 @@ func TestNew_RequiresAPIKey(t *testing.T) {
 	t.Setenv(APIKeyEnv, "qualquer")
 	if client, err := New(); err != nil || client == nil || !client.Capabilities().NativeWebSearch {
 		t.Errorf("com a variável deveria criar o cliente: %v", err)
+	}
+}
+
+func TestClient_Complete_ToolResultWithImages(t *testing.T) {
+	t.Parallel()
+	api := &fakeAPI{stream: toolUseStream()}
+	client := api.client(t)
+	first, err := client.Complete(context.Background(), baseRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := provider.ToolResult("toolu_1", "dois prints", false)
+	result.Images = []provider.Image{
+		{Label: "desktop 1440x900", MediaType: "image/png", Data: []byte("png-falso")},
+		{MediaType: "image/jpeg", Data: []byte("jpeg-falso")},
+	}
+	req := baseRequest()
+	req.Messages = append(req.Messages, first.Message, provider.Message{Role: provider.RoleUser, Blocks: []provider.Block{result}})
+	if _, err := client.Complete(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+
+	messages := api.requests[1].body["messages"].([]any)
+	sent := messages[len(messages)-1].(map[string]any)["content"].([]any)[0].(map[string]any)
+	content := sent["content"].([]any)
+	if len(content) != 4 {
+		t.Fatalf("quero texto, rótulo, imagem e imagem; vieram %d blocos: %v", len(content), content)
+	}
+	if content[0].(map[string]any)["text"] != "dois prints" || content[1].(map[string]any)["text"] != "desktop 1440x900" {
+		t.Errorf("o texto e o rótulo não vieram antes da imagem: %v", content[:2])
+	}
+	for i, want := range []struct{ media, data string }{{"image/png", "png-falso"}, {"image/jpeg", "jpeg-falso"}} {
+		block := content[2+i].(map[string]any)
+		source, _ := block["source"].(map[string]any)
+		if block["type"] != "image" || source["type"] != "base64" || source["media_type"] != want.media ||
+			source["data"] != base64.StdEncoding.EncodeToString([]byte(want.data)) {
+			t.Errorf("imagem %d inesperada: %v", i, block)
+		}
 	}
 }

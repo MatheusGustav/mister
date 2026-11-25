@@ -351,6 +351,7 @@ func (a *Agent) runTools(ctx context.Context, uses []provider.Block) []provider.
 			a.hooks.OnToolResult(a.set.ID, call, res)
 		}
 		results[i] = provider.ToolResult(use.ToolUseID, res.Content, res.IsError)
+		results[i].Images = res.Images
 	}
 
 	for start := 0; start < len(uses); {

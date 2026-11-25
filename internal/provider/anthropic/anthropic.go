@@ -3,6 +3,7 @@ package anthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -166,7 +167,7 @@ func messageParam(m provider.Message) (*sdk.BetaMessageParam, error) {
 		case provider.BlockToolUse:
 			blocks = append(blocks, sdk.NewBetaToolUseBlock(b.ToolUseID, json.RawMessage(b.Input), b.ToolName))
 		case provider.BlockToolResult:
-			blocks = append(blocks, sdk.NewBetaToolResultBlock(b.ToolUseID, b.Text, b.IsError))
+			blocks = append(blocks, toolResultParam(b))
 		case provider.BlockOpaque:
 			// Written by another provider: this one cannot read it.
 		}
@@ -179,6 +180,27 @@ func messageParam(m provider.Message) (*sdk.BetaMessageParam, error) {
 	}
 	user := sdk.NewBetaUserMessage(blocks...)
 	return &user, nil
+}
+
+// toolResultParam sends the text of a tool result and then its pictures, each
+// one after its label.
+func toolResultParam(b provider.Block) sdk.BetaContentBlockParamUnion {
+	result := sdk.NewBetaToolResultBlock(b.ToolUseID, b.Text, b.IsError)
+	for _, img := range b.Images {
+		if img.Label != "" {
+			result.OfToolResult.Content = append(result.OfToolResult.Content,
+				sdk.BetaToolResultBlockParamContentUnion{OfText: &sdk.BetaTextBlockParam{Text: img.Label}})
+		}
+		result.OfToolResult.Content = append(result.OfToolResult.Content, sdk.BetaToolResultBlockParamContentUnion{
+			OfImage: &sdk.BetaImageBlockParam{Source: sdk.BetaImageBlockParamSourceUnion{
+				OfBase64: &sdk.BetaBase64ImageSourceParam{
+					Data:      base64.StdEncoding.EncodeToString(img.Data),
+					MediaType: sdk.BetaBase64ImageSourceMediaType(img.MediaType),
+				},
+			}},
+		})
+	}
+	return result
 }
 
 func toResponse(msg sdk.BetaMessage) (*provider.Response, error) {

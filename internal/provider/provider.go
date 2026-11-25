@@ -25,6 +25,14 @@ const (
 	BlockOpaque BlockType = "opaque"
 )
 
+// Image is a picture a tool hands back to the model.
+type Image struct {
+	// Label says what the picture shows; the model reads it right before the picture.
+	Label     string `json:"label,omitempty"`
+	MediaType string `json:"media_type"`
+	Data      []byte `json:"data"`
+}
+
 // Block is one piece of a message. Text carries the text of a text block and
 // the content of a tool result.
 type Block struct {
@@ -34,6 +42,8 @@ type Block struct {
 	ToolName  string          `json:"tool_name,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
+	// Images are the pictures of a tool result, after its text.
+	Images []Image `json:"images,omitempty"`
 	// Raw is the provider-native form of an assistant block. The provider named
 	// in Message.Provider replays it byte for byte.
 	Raw json.RawMessage `json:"raw,omitempty"`
@@ -79,6 +89,9 @@ func (m Message) Size() int {
 	n := 0
 	for _, b := range m.Blocks {
 		n += len(b.Text) + len(b.Input) + len(b.Raw) + len(b.ToolUseID) + len(b.ToolName)
+		for _, img := range b.Images {
+			n += len(img.Label) + len(img.Data)
+		}
 	}
 	return n
 }

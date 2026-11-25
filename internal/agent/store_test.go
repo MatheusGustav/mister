@@ -46,6 +46,28 @@ func TestStore_HistoryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStore_HistoryRoundTrip_KeepsToolImages(t *testing.T) {
+	t.Parallel()
+	store := OpenStore(t.TempDir(), "s1")
+	picture := []byte{0x89, 'P', 'N', 'G', 0x00, 0xff, '\n', '"'}
+	result := provider.ToolResult("t", "um print", false)
+	result.Images = []provider.Image{{Label: "celular 390x844", MediaType: "image/png", Data: picture}}
+	if err := store.Append("host", provider.Message{Role: provider.RoleUser, Blocks: []provider.Block{result}}); err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.Load("host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || len(history[0].Blocks) != 1 || len(history[0].Blocks[0].Images) != 1 {
+		t.Fatalf("a imagem se perdeu ao reler: %+v", history)
+	}
+	got := history[0].Blocks[0].Images[0]
+	if got.Label != "celular 390x844" || got.MediaType != "image/png" || string(got.Data) != string(picture) {
+		t.Errorf("imagem relida diferente da gravada: %+v", got)
+	}
+}
+
 func TestStore_Load_IgnoresLineCutByCrash(t *testing.T) {
 	t.Parallel()
 	store := OpenStore(t.TempDir(), "s1")
