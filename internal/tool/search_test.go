@@ -2,6 +2,9 @@ package tool
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -57,6 +60,36 @@ func TestGrep(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGrepWithRipgrep_KeepsMatchesWhenAFolderCannotBeRead(t *testing.T) {
+	t.Parallel()
+	rg, err := exec.LookPath("rg")
+	if err != nil {
+		t.Skip("ripgrep não está instalado")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root lê qualquer pasta")
+	}
+	env := searchFixture(t)
+	root := env.Workspace.Root()
+	closed := filepath.Join(root, "fechada")
+	writeFile(t, env, "fechada/b.go", "Alvo trancado\n")
+	if err := os.Chmod(closed, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o755) })
+
+	lines, err := grepWithRipgrep(context.Background(), rg, "Alvo", "", root)
+	if err != nil {
+		t.Fatalf("a busca falhou por causa da pasta sem permissão: %v", err)
+	}
+	if got := formatMatches(lines, env.Workspace); !strings.Contains(got, "main.go:3:func Alvo() {}") {
+		t.Errorf("faltou o que foi achado fora da pasta fechada:\n%s", got)
+	}
+	if _, err := grepWithRipgrep(context.Background(), rg, "inexistente_xyz", "", root); err == nil {
+		t.Error("sem nenhum achado, a pasta que não pôde ser lida deveria aparecer como erro")
 	}
 }
 

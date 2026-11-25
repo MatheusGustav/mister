@@ -106,7 +106,11 @@ func grepWithRipgrep(ctx context.Context, rg, pattern, glob, root string) ([]str
 		if errors.As(err, &exit) && exit.ExitCode() == 1 {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("ripgrep: %w: %s", err, strings.TrimSpace(stderr.String()))
+		// Exit code 2 with matches: a path could not be read (no permission),
+		// the rest was searched.
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 || stdout.Len() == 0 {
+			return nil, fmt.Errorf("ripgrep: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
 	}
 	return splitLines(stdout.String(), searchMaxMatches+1), nil
 }
