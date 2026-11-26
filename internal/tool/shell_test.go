@@ -3,6 +3,8 @@ package tool
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -133,6 +135,85 @@ func TestHeavyQueue_OneAtATime(t *testing.T) {
 	}
 	if q.Running() != 0 || q.Waiting() != 0 {
 		t.Errorf("a fila não esvaziou: rodando %d, esperando %d", q.Running(), q.Waiting())
+	}
+}
+
+// Two queues over the same folder are two Misters open on the same machine.
+func TestHeavyQueue_SharedByEveryMister(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "fila")
+	queues := []*HeavyQueue{NewSharedHeavyQueue(1, dir), NewSharedHeavyQueue(1, dir), NewSharedHeavyQueue(1, dir)}
+	var running, peak, ran atomic.Int32
+	var wg sync.WaitGroup
+	for _, q := range queues {
+		for range 2 {
+			wg.Go(func() {
+				_, err := q.Do(context.Background(), func() {
+					now := running.Add(1)
+					for {
+						old := peak.Load()
+						if now <= old || peak.CompareAndSwap(old, now) {
+							break
+						}
+					}
+					time.Sleep(20 * time.Millisecond)
+					running.Add(-1)
+					ran.Add(1)
+				})
+				if err != nil {
+					t.Errorf("Do: %v", err)
+				}
+			})
+		}
+	}
+	wg.Wait()
+	if peak.Load() != 1 || ran.Load() != 6 {
+		t.Errorf("rodaram %d ao mesmo tempo (quero 1) e %d no total (quero 6)", peak.Load(), ran.Load())
+	}
+}
+
+func TestHeavyQueue_SharedCancelWhileAnotherMisterRuns(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	busy, waiting := NewSharedHeavyQueue(1, dir), NewSharedHeavyQueue(1, dir)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		_, _ = busy.Do(context.Background(), func() {
+			close(started)
+			<-release
+		})
+	})
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	ran := false
+	waited, err := waiting.Do(ctx, func() { ran = true })
+	if err == nil || ran || waited < 100*time.Millisecond {
+		t.Errorf("quem desistiu da fila não deveria rodar: err=%v ran=%v esperou=%s", err, ran, waited)
+	}
+	close(release)
+	wg.Wait()
+	if _, err := waiting.Do(context.Background(), func() { ran = true }); err != nil || !ran {
+		t.Errorf("com a vaga livre, deveria rodar: err=%v ran=%v", err, ran)
+	}
+	if waiting.Waiting() != 0 || waiting.Running() != 0 {
+		t.Errorf("a fila não esvaziou: rodando %d, esperando %d", waiting.Running(), waiting.Waiting())
+	}
+}
+
+// A folder that cannot be created leaves each Mister with its own limit.
+func TestHeavyQueue_SharedFolderThatCannotBeUsed(t *testing.T) {
+	t.Parallel()
+	file := filepath.Join(t.TempDir(), "arquivo")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ran := false
+	if _, err := NewSharedHeavyQueue(1, filepath.Join(file, "fila")).Do(context.Background(), func() { ran = true }); err != nil || !ran {
+		t.Errorf("o comando deveria rodar mesmo sem a pasta: err=%v ran=%v", err, ran)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,8 +36,11 @@ func DefaultShellLimits() ShellLimits {
 }
 
 // HeavyQueue lets only a few heavy commands run at a time, across all agents.
+// With a folder, the limit holds for every Mister that uses the same folder:
+// each command in progress keeps one of the lock files there.
 type HeavyQueue struct {
 	slots   chan struct{}
+	dir     string
 	waiting atomic.Int32
 	running atomic.Int32
 }
@@ -48,25 +52,66 @@ func NewHeavyQueue(limit int) *HeavyQueue {
 	return &HeavyQueue{slots: make(chan struct{}, limit)}
 }
 
+// NewSharedHeavyQueue is NewHeavyQueue with the limit shared by every Mister
+// that points to dir.
+func NewSharedHeavyQueue(limit int, dir string) *HeavyQueue {
+	q := NewHeavyQueue(limit)
+	q.dir = dir
+	return q
+}
+
 // Do runs fn when a slot is free and reports how long it waited in line.
 func (q *HeavyQueue) Do(ctx context.Context, fn func()) (time.Duration, error) {
 	start := time.Now()
 	q.waiting.Add(1)
 	select {
 	case q.slots <- struct{}{}:
-		q.waiting.Add(-1)
 	case <-ctx.Done():
 		q.waiting.Add(-1)
 		return time.Since(start), ctx.Err()
+	}
+	leave, err := q.shareSlot(ctx)
+	q.waiting.Add(-1)
+	if err != nil {
+		<-q.slots
+		return time.Since(start), err
 	}
 	waited := time.Since(start)
 	q.running.Add(1)
 	defer func() {
 		q.running.Add(-1)
+		leave()
 		<-q.slots
 	}()
 	fn()
 	return waited, nil
+}
+
+// shareSlot waits for one of the lock files of the folder, which the other
+// Misters also line up for, and returns how to give it back. The system drops
+// the lock of a Mister that dies. A folder that cannot be used leaves the
+// limit to this Mister alone: the command must still run.
+func (q *HeavyQueue) shareSlot(ctx context.Context) (leave func(), err error) {
+	if q.dir == "" || os.MkdirAll(q.dir, 0o755) != nil {
+		return func() {}, nil
+	}
+	for {
+		for i := range cap(q.slots) {
+			f, err := os.OpenFile(filepath.Join(q.dir, fmt.Sprintf("pesado-%d.lock", i)), os.O_RDWR|os.O_CREATE, 0o644)
+			if err != nil {
+				return func() {}, nil
+			}
+			if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+				return func() { f.Close() }, nil
+			}
+			f.Close()
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 func (q *HeavyQueue) Limit() int   { return cap(q.slots) }

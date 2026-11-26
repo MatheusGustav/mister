@@ -187,6 +187,7 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 		Roles:        roles,
 		Store:        store,
 		SessionID:    sessionID,
+		HeavyDir:     home.HeavyDir(),
 		Project:      project,
 		OwnerRules:   ownerRules,
 		ProjectRules: projectRules,

@@ -93,7 +93,10 @@ func (h Home) SessionsDir() string  { return filepath.Join(h.Dir, "sessions") }
 func (h Home) MemoryDir() string    { return filepath.Join(h.Dir, "memory") }
 func (h Home) RulesFile() string    { return filepath.Join(h.Dir, "AGENTS.md") }
 func (h Home) EmbeddingDir() string { return filepath.Join(h.Dir, "embedding") }
-func (h Home) IndexFile() string    { return filepath.Join(h.Dir, "indice.json") }
+
+// HeavyDir is where the Misters of the machine line up their heavy commands.
+func (h Home) HeavyDir() string  { return filepath.Join(h.Dir, "fila") }
+func (h Home) IndexFile() string { return filepath.Join(h.Dir, "indice.json") }
 
 // BrowserDir is where the browser of the screenshot tool is downloaded, on the
 // first screenshot.

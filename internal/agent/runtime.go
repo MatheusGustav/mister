@@ -33,6 +33,9 @@ type Options struct {
 	Roles     map[string]role.Role
 	Store     *Store
 	SessionID string
+	// HeavyDir is where every Mister of the machine lines up its heavy commands.
+	// Empty keeps the limit inside this session.
+	HeavyDir string
 	// Project is the directory the host works in.
 	Project      string
 	OwnerRules   string
@@ -101,7 +104,7 @@ func NewRuntime(ctx context.Context, opts Options) (*Runtime, error) {
 	rt := &Runtime{
 		opts:    opts,
 		exec:    &tool.Executor{Registry: opts.Registry, Authorize: opts.Authorize},
-		heavy:   tool.NewHeavyQueue(opts.Config.HeavyLimit),
+		heavy:   tool.NewSharedHeavyQueue(opts.Config.HeavyLimit, opts.HeavyDir),
 		events:  make(chan struct{}, 1),
 		threads: make(map[string]*thread),
 		created: opts.Now(),
