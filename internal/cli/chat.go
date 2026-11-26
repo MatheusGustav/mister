@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -46,12 +45,25 @@ type printer struct {
 	err io.Writer
 	// midLine says the answer being streamed has not ended its line yet.
 	midLine bool
+	// live is the line editor while a message is being typed in the terminal:
+	// what is printed meanwhile goes through it.
+	live io.Writer
+}
+
+func (p *printer) setLive(w io.Writer) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.live = w
 }
 
 func (p *printer) text(delta string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprint(p.out, delta)
+	out := p.out
+	if p.live != nil {
+		out = p.live
+	}
+	fmt.Fprint(out, delta)
 	p.midLine = !strings.HasSuffix(delta, "\n")
 }
 
@@ -67,7 +79,7 @@ func (p *printer) endLine() {
 func (p *printer) prompt() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	fmt.Fprint(p.err, "› ")
+	fmt.Fprint(p.err, promptText)
 }
 
 func (p *printer) status(format string, args ...any) {
@@ -77,7 +89,11 @@ func (p *printer) status(format string, args ...any) {
 		fmt.Fprintln(p.out)
 		p.midLine = false
 	}
-	fmt.Fprintf(p.err, format+"\n", args...)
+	out := p.err
+	if p.live != nil {
+		out = p.live
+	}
+	fmt.Fprintf(out, format+"\n", args...)
 }
 
 func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
@@ -211,7 +227,9 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 		out.status("sessão %s em %s — /help mostra os comandos", sessionID, project)
 	}
 
-	return chatLoop(ctx, cancel, cmd.InOrStdin(), out, rt)
+	in := newInput(cmd.InOrStdin(), cmd.ErrOrStderr(), out)
+	defer in.Close()
+	return chatLoop(ctx, cancel, in, out, rt)
 }
 
 // recallFrom joins the two memories an agent receives by itself: the notes
@@ -230,9 +248,9 @@ func recallFrom(notes *memory.Store, past *memory.Sessions) agent.RecallFunc {
 	}
 }
 
-// chatLoop reads lines and hands them to the host. Ctrl+C cancels the turn in
-// progress; with no turn in progress, it leaves.
-func chatLoop(ctx context.Context, cancel context.CancelFunc, in io.Reader, out *printer, rt *agent.Runtime) error {
+// chatLoop reads messages and hands them to the host. Ctrl+C cancels the turn
+// in progress; with no turn in progress, it leaves.
+func chatLoop(ctx context.Context, cancel context.CancelFunc, in input, out *printer, rt *agent.Runtime) error {
 	var turnMu sync.Mutex
 	var cancelTurn context.CancelFunc
 
@@ -259,39 +277,32 @@ func chatLoop(ctx context.Context, cancel context.CancelFunc, in io.Reader, out 
 		}
 	})
 
-	// The reader blocks on the terminal and cannot be interrupted: when the
-	// session ends first, this goroutine ends with the process.
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		reader := bufio.NewReader(in)
-		for {
-			line, err := reader.ReadString('\n')
-			if line != "" {
-				select {
-				case lines <- line:
-				case <-ctx.Done():
-					return
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	type message struct {
+		text string
+		err  error
+	}
 
 	defer cancel()
 	for {
-		out.prompt()
+		// The read blocks on the terminal and cannot be interrupted: when the
+		// session ends first, this goroutine ends with the process.
+		typed := make(chan message, 1)
+		go func() {
+			text, err := in.ReadMessage()
+			typed <- message{text, err}
+		}()
 		var line string
-		var ok bool
 		select {
 		case <-ctx.Done():
 			return nil
-		case line, ok = <-lines:
-			if !ok {
+		case m := <-typed:
+			if m.err != nil {
+				if !errors.Is(m.err, io.EOF) {
+					out.status("erro lendo o terminal: %v", m.err)
+				}
 				return nil
 			}
+			line = m.text
 		}
 		line = strings.TrimSpace(line)
 		switch line {
