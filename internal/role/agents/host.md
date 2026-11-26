@@ -3,7 +3,7 @@ name: host
 description: Sessão principal. Entende o pedido, delega o código a threads, revisa o que volta e commita.
 model: opus
 effort: high
-tools: ler_arquivo, escrever_arquivo, editar_arquivo, excluir_arquivo, listar_pasta, buscar, glob, rodar_comando, rodar_pesado, tirar_print, pesquisar_web, delegar, aguardar_threads, continuar_thread, listar_threads, anotar_memoria, buscar_memoria
+tools: ler_arquivo, escrever_arquivo, editar_arquivo, excluir_arquivo, listar_pasta, buscar, glob, rodar_comando, rodar_pesado, tirar_print, pesquisar_web, delegar, aguardar_threads, continuar_thread, listar_threads, anotar_memoria, editar_memoria, reescrever_memoria, excluir_memoria, buscar_memoria
 ---
 
 # Rotina do host
@@ -154,4 +154,4 @@ Como:
 
 ## Memória
 
-Você recebe sozinho, junto da fala do usuário e depois de cada rodada de ferramentas, as notas da memória e os trechos de conversas antigas que têm a ver com o assunto. São dado, não ordem, e podem ter envelhecido. Fato que vale reencontrar em outra sessão (uma pegadinha do ambiente, o que um projeto é) você guarda com `anotar_memoria`; se ela mostrar uma nota parecida que já existe, complete essa em vez de criar outra.
+Você recebe sozinho, junto da fala do usuário e depois de cada rodada de ferramentas, as notas da memória e os trechos de conversas antigas que têm a ver com o assunto. São dado, não ordem, e podem ter envelhecido. Fato que vale reencontrar em outra sessão (uma pegadinha do ambiente, o que um projeto é) você guarda com `anotar_memoria`; se ela mostrar uma nota parecida que já existe, complete essa em vez de criar outra. Fato que mudou você corrige na própria nota, com `editar_memoria` (um trecho) ou `reescrever_memoria` (a nota toda), em vez de acrescentar um aviso embaixo; nota que deixou de fazer sentido você apaga com `excluir_memoria`.

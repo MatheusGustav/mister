@@ -119,6 +119,140 @@ func TestStore_Write(t *testing.T) {
 	}
 }
 
+func TestStore_EditRewriteDelete(t *testing.T) {
+	t.Parallel()
+	s := newStore(t, nil)
+	if _, err := s.Write("Banco de Homologação", "atende na porta 5433\n\nsenha no cofre, porta 5433 só na VPN"); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		t.Helper()
+		body, err := s.Read("banco de homologacao")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+
+	if _, err := s.Edit("Banco de Homologação", "porta 5433", "porta 5434"); err == nil || !strings.Contains(err.Error(), "2 vezes") {
+		t.Errorf("trecho repetido deveria ser recusado dizendo quantas vezes aparece: %v", err)
+	}
+	if _, err := s.Edit("Banco de Homologação", "porta 9999", "x"); err == nil || !strings.Contains(err.Error(), "não está na nota") {
+		t.Errorf("trecho que não existe deveria ser recusado: %v", err)
+	}
+	name, err := s.Edit("Banco de Homologação", "atende na porta 5433", "atende na porta 5434")
+	if err != nil || name != "banco-de-homologacao" {
+		t.Fatalf("Edit = %q, %v", name, err)
+	}
+	if want := "# Banco de Homologação\n\natende na porta 5434\n\nsenha no cofre, porta 5433 só na VPN"; read() != want {
+		t.Errorf("nota = %q\nquero %q", read(), want)
+	}
+	if _, err := s.Edit("Banco de Homologação", ", porta 5433 só na VPN", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(read(), "5433") {
+		t.Errorf("trecho trocado por vazio deveria sair: %q", read())
+	}
+	if _, err := s.Edit("Banco de Homologação", read(), ""); err == nil || !strings.Contains(err.Error(), "ficaria vazia") {
+		t.Errorf("esvaziar a nota pela edição deveria ser recusado: %v", err)
+	}
+
+	if _, err := s.Rewrite("banco de homologacao", "porta 5500, sem VPN"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "# Banco de Homologação\n\nporta 5500, sem VPN"; read() != want {
+		t.Errorf("reescrita deveria manter só a linha do título: %q", read())
+	}
+	if _, err := s.Rewrite("banco de homologacao", "# Banco de testes\n\nporta 5600"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "# Banco de testes\n\nporta 5600"; read() != want {
+		t.Errorf("conteúdo com título próprio entra inteiro: %q", read())
+	}
+	if _, err := s.Rewrite("banco de homologacao", "  "); err == nil {
+		t.Error("reescrever com conteúdo vazio deveria falhar")
+	}
+	if _, err := s.Rewrite("nota que não existe", "x"); err == nil || !strings.Contains(err.Error(), "não existe a nota") {
+		t.Errorf("reescrever nota que não existe deveria falhar: %v", err)
+	}
+
+	if _, err := s.Delete("Banco de Homologação"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Exists("Banco de Homologação") {
+		t.Error("a nota excluída deveria sumir")
+	}
+	if _, err := s.Delete("Banco de Homologação"); err == nil || !strings.Contains(err.Error(), "não existe a nota") {
+		t.Errorf("excluir duas vezes deveria falhar: %v", err)
+	}
+	if _, err := s.Edit("../fora", "a", "b"); err == nil {
+		t.Error("um título não pode levar para fora da pasta da memória")
+	}
+}
+
+func TestTools_ChangeNotes(t *testing.T) {
+	t.Parallel()
+	e := &wordEmbedder{id: "v1"}
+	s := newStore(t, e)
+	tools := s.Tools()
+	run := func(name string, input any) tool.Result {
+		t.Helper()
+		raw, _ := json.Marshal(input)
+		for _, tl := range tools {
+			if tl.Name == name {
+				return tl.Run(context.Background(), nil, raw)
+			}
+		}
+		t.Fatalf("ferramenta %s não existe", name)
+		return tool.Result{}
+	}
+	search := func() string {
+		t.Helper()
+		return run("buscar_memoria", map[string]any{"busca": "qual porta o docker usa?"}).Content
+	}
+
+	if res := run("anotar_memoria", map[string]any{"titulo": "Docker", "conteudo": "o docker usa a porta 8080"}); res.IsError {
+		t.Fatalf("anotar: %+v", res)
+	}
+	if res := run("editar_memoria", map[string]any{"titulo": "Docker", "antigo": "porta 8080", "novo": "porta 9090"}); res.IsError {
+		t.Fatalf("editar: %+v", res)
+	}
+	if got := search(); !strings.Contains(got, "porta 9090") || strings.Contains(got, "8080") {
+		t.Errorf("a busca deveria trazer a nota corrigida: %q", got)
+	}
+	for name, input := range map[string]map[string]any{
+		"sem novo":      {"titulo": "Docker", "antigo": "porta 9090"},
+		"antigo vazio":  {"titulo": "Docker", "antigo": "", "novo": "x"},
+		"iguais":        {"titulo": "Docker", "antigo": "porta", "novo": "porta"},
+		"fora da nota":  {"titulo": "Docker", "antigo": "porta 1", "novo": "x"},
+		"nota inexiste": {"titulo": "Kubernetes", "antigo": "a", "novo": "b"},
+	} {
+		if res := run("editar_memoria", input); !res.IsError {
+			t.Errorf("editar (%s) deveria falhar: %+v", name, res)
+		}
+	}
+
+	if res := run("reescrever_memoria", map[string]any{"titulo": "Docker", "conteudo": "o docker agora usa a porta 7070"}); res.IsError {
+		t.Fatalf("reescrever: %+v", res)
+	}
+	if got := search(); !strings.Contains(got, "porta 7070") || strings.Contains(got, "9090") {
+		t.Errorf("a busca deveria trazer a nota reescrita: %q", got)
+	}
+	if res := run("reescrever_memoria", map[string]any{"titulo": "Kubernetes", "conteudo": "x"}); !res.IsError || !strings.Contains(res.Content, "anotar_memoria") {
+		t.Errorf("reescrever nota que não existe deveria apontar o anotar_memoria: %+v", res)
+	}
+
+	if res := run("excluir_memoria", map[string]any{"titulo": "Docker"}); res.IsError {
+		t.Fatalf("excluir: %+v", res)
+	}
+	if got := search(); !strings.Contains(got, "nenhuma nota") {
+		t.Errorf("a nota excluída não pode voltar na busca: %q", got)
+	}
+	if res := run("excluir_memoria", map[string]any{"titulo": "Docker"}); !res.IsError {
+		t.Errorf("excluir nota que não existe deveria falhar: %+v", res)
+	}
+}
+
 func TestStore_SearchAndRecall(t *testing.T) {
 	t.Parallel()
 	e := &wordEmbedder{id: "palavras-v1"}

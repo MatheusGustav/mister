@@ -71,11 +71,21 @@ func (s *Store) Tools() []tool.Tool {
 	type searchInput struct {
 		Busca string `json:"busca"`
 	}
+	type editInput struct {
+		Titulo string  `json:"titulo"`
+		Antigo string  `json:"antigo"`
+		Novo   *string `json:"novo"`
+	}
+	type deleteInput struct {
+		Titulo string `json:"titulo"`
+	}
+	title := tool.Str("título da nota, como aparece em '--- nota: ... ---'")
 	return []tool.Tool{
 		{
 			Name: "anotar_memoria",
 			Description: "Guarda um fato na memória de longo prazo, para reencontrar em outra sessão: uma pegadinha do ambiente, o que um projeto é, um macete que custou tempo. " +
-				"Anotar num título que já existe acrescenta ao fim da nota. Ligue assuntos relacionados com [[titulo-da-outra-nota]]. " +
+				"Anotar num título que já existe acrescenta ao fim da nota; para corrigir o que já está escrito, use editar_memoria ou reescrever_memoria. " +
+				"Ligue assuntos relacionados com [[titulo-da-outra-nota]]. " +
 				"Se já existir uma nota muito parecida com outro título, a ferramenta não grava e mostra essa nota, para você completar a que existe. " +
 				"Não use para o que só vale nesta conversa.",
 			Schema: tool.Object([]string{"titulo", "conteudo"}, map[string]any{
@@ -142,6 +152,71 @@ func (s *Store) Tools() []tool.Tool {
 				}
 				body, _ := formatNotes(notes, recallMaxChars)
 				return tool.OK("%s", body)
+			},
+		},
+		{
+			Name: "editar_memoria",
+			Description: "Troca um trecho exato de uma nota da memória por outro, para corrigir um fato que mudou ou tirar o que deixou de valer. " +
+				"'antigo' tem que bater com a nota caractere por caractere e aparecer uma vez só; se aparecer mais de uma vez, inclua mais texto ao redor.",
+			Schema: tool.Object([]string{"titulo", "antigo", "novo"}, map[string]any{
+				"titulo": title,
+				"antigo": tool.Str("trecho exato que existe hoje na nota"),
+				"novo":   tool.Str("texto que entra no lugar (string vazia apaga o trecho)"),
+			}),
+			Run: func(_ context.Context, _ *tool.Env, raw json.RawMessage) tool.Result {
+				in, err := tool.Decode[editInput](raw)
+				if err != nil {
+					return tool.Fail("%v", err)
+				}
+				switch {
+				case in.Antigo == "":
+					return tool.Fail("'antigo' veio vazio. Informe o trecho exato a trocar; para acrescentar à nota, use anotar_memoria.")
+				case in.Novo == nil:
+					return tool.Fail("faltou o parâmetro 'novo'. Para apagar o trecho, envie uma string vazia.")
+				case in.Antigo == *in.Novo:
+					return tool.Fail("'antigo' e 'novo' são iguais: não há o que trocar.")
+				}
+				name, err := s.Edit(in.Titulo, in.Antigo, *in.Novo)
+				if err != nil {
+					return tool.Fail("não foi possível editar: %v.", err)
+				}
+				return tool.OK("nota %s editada", name)
+			},
+		},
+		{
+			Name: "reescrever_memoria",
+			Description: "Troca todo o conteúdo de uma nota da memória por um texto novo: o que estava escrito sai. " +
+				"Use quando a nota inteira envelheceu ou ficou confusa de tanto acréscimo. A linha do título fica, a não ser que o conteúdo novo comece com outra.",
+			Schema: tool.Object([]string{"titulo", "conteudo"}, map[string]any{
+				"titulo":   title,
+				"conteudo": tool.Str("o conteúdo completo da nota, em markdown"),
+			}),
+			Run: func(_ context.Context, _ *tool.Env, raw json.RawMessage) tool.Result {
+				in, err := tool.Decode[writeInput](raw)
+				if err != nil {
+					return tool.Fail("%v", err)
+				}
+				name, err := s.Rewrite(in.Titulo, in.Conteudo)
+				if err != nil {
+					return tool.Fail("não foi possível reescrever: %v. Para criar uma nota, use anotar_memoria.", err)
+				}
+				return tool.OK("nota %s reescrita", name)
+			},
+		},
+		{
+			Name:        "excluir_memoria",
+			Description: "Apaga uma nota da memória, inteira. Use quando o assunto dela deixou de existir ou ela repete outra nota.",
+			Schema:      tool.Object([]string{"titulo"}, map[string]any{"titulo": title}),
+			Run: func(_ context.Context, _ *tool.Env, raw json.RawMessage) tool.Result {
+				in, err := tool.Decode[deleteInput](raw)
+				if err != nil {
+					return tool.Fail("%v", err)
+				}
+				name, err := s.Delete(in.Titulo)
+				if err != nil {
+					return tool.Fail("não foi possível excluir: %v.", err)
+				}
+				return tool.OK("nota %s excluída", name)
 			},
 		},
 	}

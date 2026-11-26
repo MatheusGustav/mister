@@ -123,6 +123,91 @@ func (s *Store) Write(title, content string) (string, error) {
 	return name, nil
 }
 
+// Edit swaps one exact passage of a note for another. The passage must be in
+// the note once: more than once, the caller has to send more of the text
+// around it.
+func (s *Store) Edit(title, old, replacement string) (string, error) {
+	name := Slug(title)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.load(name)
+	if err != nil {
+		return "", err
+	}
+	switch n := strings.Count(current, old); {
+	case n == 0:
+		return "", fmt.Errorf("o trecho não está na nota %s. Ele precisa bater caractere por caractere com o texto da nota", name)
+	case n > 1:
+		return "", fmt.Errorf("o trecho aparece %d vezes na nota %s. Inclua mais texto ao redor, até ele ser único", n, name)
+	}
+	body := strings.TrimSpace(strings.Replace(current, old, replacement, 1))
+	if body == "" {
+		return "", fmt.Errorf("a nota %s ficaria vazia. Para apagar a nota, exclua", name)
+	}
+	return name, s.save(name, body+"\n")
+}
+
+// Rewrite replaces everything a note says. The note keeps its title line,
+// unless the new content brings its own.
+func (s *Store) Rewrite(title, content string) (string, error) {
+	name := Slug(title)
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", errors.New("a nota veio sem conteúdo")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.load(name)
+	if err != nil {
+		return "", err
+	}
+	if !strings.HasPrefix(content, "# ") {
+		heading, _, _ := strings.Cut(current, "\n")
+		if !strings.HasPrefix(heading, "# ") {
+			heading = "# " + strings.TrimSpace(title)
+		}
+		content = heading + "\n\n" + content
+	}
+	return name, s.save(name, content+"\n")
+}
+
+// Delete removes a note.
+func (s *Store) Delete(title string) (string, error) {
+	name := Slug(title)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.load(name); err != nil {
+		return "", err
+	}
+	if err := os.Remove(s.path(name)); err != nil {
+		return "", fmt.Errorf("excluindo a nota %s: %w", name, err)
+	}
+	return name, nil
+}
+
+// load reads a note that must exist. Called with s.mu held.
+func (s *Store) load(name string) (string, error) {
+	if name == "" {
+		return "", errors.New("o título precisa ter pelo menos uma letra ou número")
+	}
+	data, err := os.ReadFile(s.path(name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("não existe a nota %s", name)
+	}
+	if err != nil {
+		return "", fmt.Errorf("lendo a nota %s: %w", name, err)
+	}
+	return string(data), nil
+}
+
+// save writes the whole text of a note. Called with s.mu held.
+func (s *Store) save(name, body string) error {
+	if err := os.WriteFile(s.path(name), []byte(body), 0o644); err != nil {
+		return fmt.Errorf("gravando a nota %s: %w", name, err)
+	}
+	return nil
+}
+
 // Exists reports whether there is a note with this title.
 func (s *Store) Exists(title string) bool {
 	_, err := os.Stat(s.path(title))
