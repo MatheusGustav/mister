@@ -125,6 +125,7 @@ func NewRuntime(ctx context.Context, opts Options) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	meta.Prefix = host.prefix()
 	rt.host, rt.hostMeta = host, meta
 	return rt, nil
 }
@@ -201,6 +202,11 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 	if err != nil {
 		return err
 	}
+	if meta.Host.Prefix != rt.hostMeta.Prefix {
+		if history, err = rt.forget(HostID, history); err != nil {
+			return err
+		}
+	}
 	if err := rt.host.Restore(history); err != nil {
 		return err
 	}
@@ -226,12 +232,18 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 		if !ok {
 			return fmt.Errorf("o thread %s usa o agente %q, que não existe mais", tm.ID, tm.Role)
 		}
-		t := &thread{meta: tm, noticed: tm.Reported}
+		t := &thread{noticed: tm.Reported}
 		// A worktree removed since then only matters if the host continues the thread.
 		if a, err := rt.newAgent(tm, r, threadPreamble(tm, rt.opts.Project, rt.opts.Now()), nil); err == nil {
 			h, err := rt.opts.Store.Load(tm.ID)
 			if err != nil {
 				return err
+			}
+			if tm.Prefix != a.prefix() {
+				if h, err = rt.forget(tm.ID, h); err != nil {
+					return err
+				}
+				tm.Prefix = a.prefix()
 			}
 			if err := a.Restore(h); err != nil {
 				return err
@@ -239,12 +251,44 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 			t.agent = a
 			rt.host.env.Workspace.AllowRead(tm.Root)
 		}
+		t.meta = tm
 		rt.mu.Lock()
 		rt.threads[tm.ID] = t
 		rt.order = append(rt.order, tm.ID)
 		rt.mu.Unlock()
 	}
 	return rt.saveMeta()
+}
+
+// forget drops the reasoning from the saved history of an agent whose system
+// prompt or tools changed since it was written: the provider refuses to read
+// that reasoning back. The agent carries on with the rules of today.
+func (rt *Runtime) forget(id string, history []provider.Message) ([]provider.Message, error) {
+	dropper, ok := rt.opts.Provider.(provider.ReasoningDropper)
+	if !ok {
+		return history, nil
+	}
+	kept := make([]provider.Message, 0, len(history))
+	dropped := false
+	for _, m := range history {
+		clean := dropper.DropReasoning(m)
+		if len(clean.Blocks) != len(m.Blocks) {
+			dropped = true
+		}
+		if len(clean.Blocks) > 0 {
+			kept = append(kept, clean)
+		}
+	}
+	if !dropped {
+		return history, nil
+	}
+	if err := rt.opts.Store.Reset(id, kept); err != nil {
+		return nil, err
+	}
+	if rt.opts.Hooks.OnNotice != nil {
+		rt.opts.Hooks.OnNotice(id, "as instruções ou as ferramentas mudaram desde que esta sessão foi gravada: o raciocínio antigo saiu do histórico")
+	}
+	return kept, nil
 }
 
 // Close stops every running thread and waits for their goroutines to end.

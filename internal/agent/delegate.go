@@ -150,6 +150,7 @@ func (rt *Runtime) delegateTool() tool.Tool {
 			if err != nil {
 				return tool.Fail("a worktree foi criada em %s, mas o thread não subiu: %v", path, err)
 			}
+			meta.Prefix = a.prefix()
 			t := &thread{agent: a, meta: meta}
 			rt.mu.Lock()
 			rt.threads[in.Nome] = t

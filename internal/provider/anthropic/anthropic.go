@@ -48,6 +48,34 @@ func (c *Client) Capabilities() provider.Capabilities {
 	return provider.Capabilities{NativeWebSearch: true}
 }
 
+// DropReasoning removes the thinking blocks of a message this provider wrote.
+// The API refuses them once the system prompt or the tools are no longer the
+// ones they were produced with.
+func (c *Client) DropReasoning(m provider.Message) provider.Message {
+	if m.Provider != Name {
+		return m
+	}
+	kept := make([]provider.Block, 0, len(m.Blocks))
+	for _, b := range m.Blocks {
+		if b.Type == provider.BlockOpaque && isThinking(b.Raw) {
+			continue
+		}
+		kept = append(kept, b)
+	}
+	m.Blocks = kept
+	return m
+}
+
+func isThinking(raw json.RawMessage) bool {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &head) != nil {
+		return false
+	}
+	return head.Type == "thinking" || head.Type == "redacted_thinking"
+}
+
 func (c *Client) Complete(ctx context.Context, req provider.Request) (*provider.Response, error) {
 	params, err := buildParams(req)
 	if err != nil {

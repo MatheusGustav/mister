@@ -44,6 +44,18 @@ func (f *fakeProvider) Complete(ctx context.Context, req provider.Request) (*pro
 	return f.handler(n, req)
 }
 
+// DropReasoning treats every opaque block as reasoning.
+func (f *fakeProvider) DropReasoning(m provider.Message) provider.Message {
+	kept := make([]provider.Block, 0, len(m.Blocks))
+	for _, b := range m.Blocks {
+		if b.Type != provider.BlockOpaque {
+			kept = append(kept, b)
+		}
+	}
+	m.Blocks = kept
+	return m
+}
+
 func (f *fakeProvider) request(i int) provider.Request {
 	f.mu.Lock()
 	defer f.mu.Unlock()

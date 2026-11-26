@@ -47,6 +47,9 @@ type AgentMeta struct {
 	// already received it.
 	Question string `json:"pergunta,omitempty"`
 	Asked    bool   `json:"pergunta_entregue,omitempty"`
+	// Prefix identifies the system prompt and the tools the history was written
+	// under. The provider ties the reasoning in the history to them.
+	Prefix string `json:"prefixo,omitempty"`
 }
 
 // SessionMeta is the content of a session file.

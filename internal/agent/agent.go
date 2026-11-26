@@ -5,6 +5,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -139,6 +142,20 @@ func New(set Settings, deps Deps) *Agent {
 }
 
 func (a *Agent) ID() string { return a.set.ID }
+
+// prefix identifies the system prompt and the tools of the agent.
+func (a *Agent) prefix() string {
+	data, err := json.Marshal(struct {
+		System    string
+		Tools     []provider.ToolSpec
+		WebSearch *provider.WebSearch
+	}{a.set.System, a.set.Tools, a.set.WebSearch})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 // Restore loads a saved history. A tool call left without a result by a crash
 // gets one saying so, which keeps the conversation valid.

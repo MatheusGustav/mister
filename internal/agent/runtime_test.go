@@ -569,6 +569,102 @@ func TestRuntime_ResumeRestoresHostAndThreads(t *testing.T) {
 	}
 }
 
+// The provider refuses reasoning written under another system prompt: a
+// session resumed after the rules changed goes on without the old reasoning.
+func TestRuntime_ResumeDropsReasoningWhenThePrefixChanged(t *testing.T) {
+	t.Parallel()
+	thought := provider.Block{Type: provider.BlockOpaque, Raw: json.RawMessage(`{"type":"thinking"}`)}
+	answer := func(text string) *provider.Response {
+		resp := say(text)
+		resp.Message.Blocks = append([]provider.Block{thought}, resp.Message.Blocks...)
+		return resp
+	}
+	reasoning := func(msgs []provider.Message) int {
+		n := 0
+		for _, m := range msgs {
+			for _, b := range m.Blocks {
+				if b.Type == provider.BlockOpaque {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	resume := func(t *testing.T, s *session, rules string) (provider.Request, []string) {
+		t.Helper()
+		saved, err := s.store.LoadMeta()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req provider.Request
+		var notices []string
+		opts := s.opts
+		opts.Registry = tool.NewRegistry()
+		if err := opts.Registry.Register(tool.FileTools()...); err != nil {
+			t.Fatal(err)
+		}
+		opts.ProjectRules = rules
+		opts.Hooks.OnNotice = func(_, text string) { notices = append(notices, text) }
+		opts.Provider = &fakeProvider{handler: func(_ int, r provider.Request) (*provider.Response, error) {
+			req = r
+			return answer("continuei"), nil
+		}}
+		rt, err := NewRuntime(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rt.Close()
+		if err := rt.Resume(saved); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rt.Send(context.Background(), "onde paramos?"); err != nil {
+			t.Fatal(err)
+		}
+		return req, notices
+	}
+
+	s := newSession(t, testConfig(),
+		func(int, provider.Request) (*provider.Response, error) { return answer("feito"), nil }, nil)
+	// The first resume changes the tools, the second keeps everything and the
+	// third changes the rules.
+	if _, err := s.rt.Send(context.Background(), "vai"); err != nil {
+		t.Fatal(err)
+	}
+	req, notices := resume(t, s, s.opts.ProjectRules)
+	if n := reasoning(req.Messages); n != 0 {
+		t.Errorf("com as ferramentas mudadas, o raciocínio antigo deveria sair; ficaram %d blocos", n)
+	}
+	if len(req.Messages) != 3 || req.Messages[1].Text() != "feito" {
+		t.Errorf("o resto da conversa deveria ficar: %+v", req.Messages)
+	}
+	if len(notices) != 1 || !strings.Contains(notices[0], "raciocínio antigo") {
+		t.Errorf("avisos = %q, quero o aviso do raciocínio", notices)
+	}
+
+	req, notices = resume(t, s, s.opts.ProjectRules)
+	if n := reasoning(req.Messages); n != 1 {
+		t.Errorf("sem mudança, o raciocínio da sessão retomada deveria voltar; vieram %d blocos", n)
+	}
+	if len(notices) != 0 {
+		t.Errorf("sem mudança não há aviso: %q", notices)
+	}
+
+	req, _ = resume(t, s, "regra nova do projeto")
+	if n := reasoning(req.Messages); n != 0 {
+		t.Errorf("com as regras mudadas, o raciocínio antigo deveria sair; ficaram %d blocos", n)
+	}
+	if !strings.Contains(req.System, "regra nova do projeto") {
+		t.Error("a sessão retomada deveria seguir as regras de hoje")
+	}
+	history, err := s.store.Load(HostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := reasoning(history); n != 1 {
+		t.Errorf("no disco só deveria ficar o raciocínio escrito depois da mudança; ficaram %d blocos", n)
+	}
+}
+
 func TestRuntime_CloseStopsRunningThreads(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})

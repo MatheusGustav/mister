@@ -258,6 +258,39 @@ func TestClient_Complete_ReplaysAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestClient_DropReasoning(t *testing.T) {
+	t.Parallel()
+	api := &fakeAPI{stream: toolUseStream()}
+	client := api.client(t)
+	resp, err := client.Complete(context.Background(), baseRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clean := client.DropReasoning(resp.Message)
+	if len(clean.Blocks) != 2 || clean.Text() != "Vou ler." || len(clean.ToolUses()) != 1 {
+		t.Errorf("só o raciocínio deveria sair: %+v", clean.Blocks)
+	}
+	if len(resp.Message.Blocks) != 3 {
+		t.Error("a mensagem original não pode mudar")
+	}
+
+	search := provider.Message{Role: provider.RoleAssistant, Provider: Name, Blocks: []provider.Block{
+		{Type: provider.BlockOpaque, Raw: json.RawMessage(`{"type":"redacted_thinking","data":"x"}`)},
+		{Type: provider.BlockOpaque, Raw: json.RawMessage(`{"type":"server_tool_use","id":"s1","name":"web_search","input":{}}`)},
+	}}
+	if clean := client.DropReasoning(search); len(clean.Blocks) != 1 || !strings.Contains(string(clean.Blocks[0].Raw), "server_tool_use") {
+		t.Errorf("a pesquisa do provedor deveria ficar: %+v", clean.Blocks)
+	}
+
+	other := provider.Message{Role: provider.RoleAssistant, Provider: "outro", Blocks: []provider.Block{
+		{Type: provider.BlockOpaque, Raw: json.RawMessage(`{"type":"thinking"}`)},
+	}}
+	if clean := client.DropReasoning(other); len(clean.Blocks) != 1 {
+		t.Error("mensagem de outro provedor não é mexida")
+	}
+}
+
 func TestClient_Complete_MessagesFromAnotherProvider(t *testing.T) {
 	t.Parallel()
 	api := &fakeAPI{stream: toolUseStream()}

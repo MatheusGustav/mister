@@ -166,3 +166,10 @@ type Provider interface {
 	Capabilities() Capabilities
 	Complete(ctx context.Context, req Request) (*Response, error)
 }
+
+// ReasoningDropper is implemented by a provider whose reasoning blocks only
+// replay under the system prompt and the tools they were produced with.
+type ReasoningDropper interface {
+	// DropReasoning returns the message without its reasoning blocks.
+	DropReasoning(m Message) Message
+}
