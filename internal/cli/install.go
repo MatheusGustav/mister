@@ -27,7 +27,7 @@ func newInstallCommand(deps Deps) *cobra.Command {
 			"EmbeddingGemma 300M, cerca de 300 MB) e do ripgrep que a ferramenta de busca usa.\n" +
 			"Sem este comando, cada um é baixado na primeira vez que for usado, assim como o\n" +
 			"navegador dos prints.",
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 			if dest == "" {

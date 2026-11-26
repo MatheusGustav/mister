@@ -82,11 +82,25 @@ func TestVersion(t *testing.T) {
 
 func TestRoot_RejectsArguments(t *testing.T) {
 	isolate(t)
-	if _, _, err := run(t, DefaultDeps(), "", "comando-que-nao-existe"); err == nil {
-		t.Error("um argumento solto deveria ser erro de uso")
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"comando que não existe", []string{"comando-que-nao-existe"}, `comando desconhecido "comando-que-nao-existe"; veja 'mister --help'`},
+		{"--continue com --session", []string{"--continue", "--session", "x"}, "use --continue ou --session, não os dois"},
+		{"argumento num subcomando", []string{"version", "sobra"}, `'mister version' não recebe argumento (veio "sobra"); veja 'mister version --help'`},
+		{"opção que não existe", []string{"--nao-existe"}, "opção desconhecida: --nao-existe; veja 'mister --help'"},
+		{"letra que não existe", []string{"sessions", "-z"}, "opção desconhecida: -z; veja 'mister sessions --help'"},
+		{"opção sem valor", []string{"--session"}, "a opção --session precisa de um valor; veja 'mister --help'"},
 	}
-	if _, _, err := run(t, DefaultDeps(), "", "--continue", "--session", "x"); err == nil {
-		t.Error("--continue e --session juntos deveriam ser recusados")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := run(t, DefaultDeps(), "", tt.args...)
+			if err == nil || err.Error() != tt.want {
+				t.Errorf("erro = %v\nquero  %s", err, tt.want)
+			}
+		})
 	}
 }
 

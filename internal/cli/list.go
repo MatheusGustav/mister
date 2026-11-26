@@ -23,7 +23,7 @@ func newRolesCommand() *cobra.Command {
 			"em ~/.mister/agents ou em .mister/agents no projeto. O arquivo abre com um cabeçalho:\n\n" +
 			"  ---\n  name: documentador\n  description: só escreve documentação\n  model: sonnet\n  effort: medium\n" +
 			"  tools: ler_arquivo, escrever_arquivo, editar_arquivo, listar_pasta, buscar, glob\n  ---\n  <instruções do agente>",
-		Args: cobra.NoArgs,
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := config.ResolveHome()
 			if err != nil {
@@ -58,7 +58,7 @@ func newSessionsCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "sessions",
 		Short: "Lista as sessões guardadas",
-		Args:  cobra.NoArgs,
+		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := config.ResolveHome()
 			if err != nil {
