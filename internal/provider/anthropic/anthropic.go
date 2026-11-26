@@ -300,17 +300,36 @@ func stopReason(r sdk.BetaStopReason) provider.StopReason {
 	}
 }
 
+// apiError shows what the API said in one line and keeps the SDK error
+// underneath.
+type apiError struct {
+	text string
+	err  error
+}
+
+func (e *apiError) Error() string { return e.text }
+func (e *apiError) Unwrap() error { return e.err }
+
 func describeError(err error) error {
 	var apiErr *sdk.Error
 	if !errors.As(err, &apiErr) {
 		return fmt.Errorf("chamando a anthropic: %w", err)
 	}
+	// Without a message in the body, the SDK error is all there is to show.
+	detail := apiErr.Message
+	if detail == "" {
+		detail = err.Error()
+	} else if apiErr.RequestID != "" {
+		detail += " (pedido " + apiErr.RequestID + ")"
+	}
+	var text string
 	switch apiErr.StatusCode {
 	case 401, 403:
-		return fmt.Errorf("a anthropic recusou a chave (HTTP %d): confira %s: %w", apiErr.StatusCode, APIKeyEnv, err)
+		text = fmt.Sprintf("a anthropic recusou a chave (HTTP %d): confira %s: %s", apiErr.StatusCode, APIKeyEnv, detail)
 	case 429:
-		return fmt.Errorf("limite de uso da anthropic atingido (HTTP 429): %w", err)
+		text = "limite de uso da anthropic atingido (HTTP 429): " + detail
 	default:
-		return fmt.Errorf("a anthropic devolveu HTTP %d: %w", apiErr.StatusCode, err)
+		text = fmt.Sprintf("a anthropic devolveu HTTP %d: %s", apiErr.StatusCode, detail)
 	}
+	return &apiError{text: text, err: err}
 }

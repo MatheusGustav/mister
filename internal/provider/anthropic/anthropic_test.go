@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	sdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
 
 	"github.com/MatheusGustav/mister/internal/provider"
@@ -43,6 +44,7 @@ func (f *fakeAPI) client(t *testing.T) *Client {
 		f.mu.Unlock()
 		if f.status != 0 {
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Request-Id", "req_teste")
 			w.WriteHeader(f.status)
 			_, _ = io.WriteString(w, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`)
 			return
@@ -391,10 +393,24 @@ func TestClient_Complete_Refusal(t *testing.T) {
 
 func TestClient_Complete_APIError(t *testing.T) {
 	t.Parallel()
-	api := &fakeAPI{status: http.StatusUnauthorized}
-	_, err := api.client(t).Complete(context.Background(), baseRequest())
-	if err == nil || !strings.Contains(err.Error(), "recusou a chave") || !strings.Contains(err.Error(), APIKeyEnv) {
-		t.Errorf("erro = %v; quero dizer que a chave foi recusada e qual variável conferir", err)
+	tests := []struct {
+		status int
+		want   string
+	}{
+		{http.StatusUnauthorized, "a anthropic recusou a chave (HTTP 401): confira " + APIKeyEnv + ": invalid x-api-key (pedido req_teste)"},
+		{http.StatusTooManyRequests, "limite de uso da anthropic atingido (HTTP 429): invalid x-api-key (pedido req_teste)"},
+		{http.StatusBadRequest, "a anthropic devolveu HTTP 400: invalid x-api-key (pedido req_teste)"},
+	}
+	for _, tt := range tests {
+		api := &fakeAPI{status: tt.status}
+		_, err := api.client(t).Complete(context.Background(), baseRequest())
+		if err == nil || err.Error() != tt.want {
+			t.Errorf("HTTP %d: erro = %v\nquero %s", tt.status, err, tt.want)
+		}
+		var apiErr *sdk.Error
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.status {
+			t.Errorf("HTTP %d: o erro do SDK deveria continuar por baixo: %v", tt.status, err)
+		}
 	}
 }
 
