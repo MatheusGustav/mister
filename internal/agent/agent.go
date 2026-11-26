@@ -23,6 +23,13 @@ const (
 	maxToolResultLen = 100_000
 )
 
+// What the agent is told when its turn is cancelled from outside, so the next
+// message does not find it guessing what happened.
+const (
+	interruptedTools  = "[sistema] O turno foi interrompido de fora neste ponto (Ctrl+C do usuário ou programa encerrado), e as ferramentas em andamento foram canceladas. Não retome por conta própria: confira o estado e siga a próxima mensagem."
+	interruptedAnswer = "[sistema] O turno foi interrompido de fora (Ctrl+C do usuário ou programa encerrado) antes de a resposta terminar, e o que já tinha sido escrito não ficou na conversa. Siga a próxima mensagem."
+)
+
 // ErrMaxIterations stops a run that keeps calling tools without finishing.
 var ErrMaxIterations = errors.New("o agente passou do limite de voltas sem terminar")
 
@@ -232,6 +239,10 @@ func (a *Agent) RunWith(ctx context.Context, header, input string) (string, erro
 
 		resp, err := a.provider.Complete(ctx, a.request(a.snapshot()))
 		if err != nil {
+			if ctx.Err() != nil {
+				// Best effort: the cancellation is what the caller hears about.
+				_ = a.append(provider.UserText(interruptedAnswer))
+			}
 			return "", fmt.Errorf("agente %s: %w", a.set.ID, err)
 		}
 		a.recordUsage(resp.Usage)
@@ -265,6 +276,9 @@ func (a *Agent) RunWith(ctx context.Context, header, input string) (string, erro
 			// The subject may have changed in the middle of the work, with no
 			// new message: search the memory with what just happened.
 			results = append(results, a.remember(ctx, roundSubject(uses, results))...)
+			if ctx.Err() != nil {
+				results = append(results, provider.Block{Type: provider.BlockText, Text: interruptedTools})
+			}
 			if err := a.appendUser(results); err != nil {
 				return "", err
 			}

@@ -348,6 +348,32 @@ func TestAgent_Run_CancelledContext(t *testing.T) {
 	if last.Role != provider.RoleUser || last.Blocks[0].Type != provider.BlockToolResult {
 		t.Errorf("a última mensagem gravada deveria ser o resultado da ferramenta: %+v", last)
 	}
+	if note := last.Blocks[len(last.Blocks)-1]; note.Type != provider.BlockText || note.Text != interruptedTools {
+		t.Errorf("o agente deveria ficar sabendo da interrupção: %+v", note)
+	}
+}
+
+func TestAgent_Run_CancelledWhileAnswering(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	h := newHarness(t, Settings{}, func(n int, _ provider.Request) (*provider.Response, error) {
+		if n == 0 {
+			cancel()
+			return nil, ctx.Err()
+		}
+		return say("sigo daqui"), nil
+	})
+
+	if _, err := h.agent.Run(ctx, "explique"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("erro = %v, quero context.Canceled", err)
+	}
+	if _, err := h.agent.Run(context.Background(), "outra coisa"); err != nil {
+		t.Fatal(err)
+	}
+	sent := h.provider.request(1).Messages
+	if len(sent) != 3 || sent[0].Text() != "explique" || sent[1].Text() != interruptedAnswer || sent[2].Text() != "outra coisa" {
+		t.Errorf("a conversa seguinte deveria levar o aviso da interrupção entre as duas mensagens: %+v", sent)
+	}
 }
 
 func TestAgent_Run_KeepsThePrefixFixed(t *testing.T) {
