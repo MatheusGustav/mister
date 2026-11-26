@@ -79,24 +79,25 @@ type Settings struct {
 	MaxIterations int
 }
 
-// Stats measures one agent.
+// Stats measures one agent. It is saved with the session, so a resumed agent
+// keeps counting from where it was.
 type Stats struct {
-	Messages int
+	Messages int `json:"mensagens"`
 	// HistoryBytes is the memory the conversation holds; PeakHistoryBytes is
 	// the most it ever held.
-	HistoryBytes     int
-	PeakHistoryBytes int
+	HistoryBytes     int `json:"historico_bytes"`
+	PeakHistoryBytes int `json:"pico_historico_bytes"`
 	// PeakChildKB is the largest peak memory of a command the agent ran.
-	PeakChildKB int64
+	PeakChildKB int64 `json:"pico_comando_kb"`
 	// ContextTokens is the size of the last prompt sent.
-	ContextTokens    int64
-	Requests         int
-	ToolCalls        int
-	Compactions      int
-	InputTokens      int64
-	OutputTokens     int64
-	CacheReadTokens  int64
-	CacheWriteTokens int64
+	ContextTokens    int64 `json:"contexto_tokens"`
+	Requests         int   `json:"pedidos"`
+	ToolCalls        int   `json:"chamadas_ferramenta"`
+	Compactions      int   `json:"compactacoes"`
+	InputTokens      int64 `json:"tokens_entrada"`
+	OutputTokens     int64 `json:"tokens_saida"`
+	CacheReadTokens  int64 `json:"tokens_cache_lido"`
+	CacheWriteTokens int64 `json:"tokens_cache_gravado"`
 }
 
 type Agent struct {
@@ -164,10 +165,14 @@ func (a *Agent) prefix() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Restore loads a saved history. A tool call left without a result by a crash
-// gets one saying so, which keeps the conversation valid.
-func (a *Agent) Restore(history []provider.Message) error {
+// Restore loads a saved history and the measures taken until then (nil for
+// none). A tool call left without a result by a crash gets one saying so,
+// which keeps the conversation valid.
+func (a *Agent) Restore(history []provider.Message, stats *Stats) error {
 	a.mu.Lock()
+	if stats != nil {
+		a.stats = *stats
+	}
 	a.history = append([]provider.Message(nil), history...)
 	a.refreshSizeLocked()
 	var dangling []provider.Block

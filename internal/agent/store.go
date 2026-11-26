@@ -50,6 +50,8 @@ type AgentMeta struct {
 	// Prefix identifies the system prompt and the tools the history was written
 	// under. The provider ties the reasoning in the history to them.
 	Prefix string `json:"prefixo,omitempty"`
+	// Stats are the measures of the agent when the session was last saved.
+	Stats *Stats `json:"medidas,omitempty"`
 }
 
 // SessionMeta is the content of a session file.

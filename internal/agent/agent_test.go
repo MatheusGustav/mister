@@ -588,7 +588,7 @@ func TestAgent_Restore_ClosesDanglingToolCalls(t *testing.T) {
 		provider.UserText("faça"),
 		use(toolUse{id: "perdida", name: "eco", input: map[string]any{}}).Message,
 	}
-	if err := h.agent.Restore(saved); err != nil {
+	if err := h.agent.Restore(saved, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.agent.Run(context.Background(), "continue"); err != nil {

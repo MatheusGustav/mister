@@ -207,7 +207,7 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 			return err
 		}
 	}
-	if err := rt.host.Restore(history); err != nil {
+	if err := rt.host.Restore(history, meta.Host.Stats); err != nil {
 		return err
 	}
 	rt.mu.Lock()
@@ -245,7 +245,7 @@ func (rt *Runtime) Resume(meta SessionMeta) error {
 				}
 				tm.Prefix = a.prefix()
 			}
-			if err := a.Restore(h); err != nil {
+			if err := a.Restore(h, tm.Stats); err != nil {
 				return err
 			}
 			t.agent = a
@@ -316,10 +316,22 @@ func (rt *Runtime) saveMeta() error {
 		return nil
 	}
 	meta := SessionMeta{ID: rt.opts.SessionID, Project: rt.opts.Project, Created: rt.created, Host: rt.hostMeta}
+	agents := []*Agent{rt.host}
 	for _, id := range rt.order {
 		meta.Threads = append(meta.Threads, rt.threads[id].meta)
+		agents = append(agents, rt.threads[id].agent)
 	}
 	rt.mu.Unlock()
+
+	// A thread whose worktree is gone has no agent: it keeps what was saved.
+	hostStats := agents[0].Stats()
+	meta.Host.Stats = &hostStats
+	for i, a := range agents[1:] {
+		if a != nil {
+			stats := a.Stats()
+			meta.Threads[i].Stats = &stats
+		}
+	}
 	return rt.opts.Store.SaveMeta(meta)
 }
 

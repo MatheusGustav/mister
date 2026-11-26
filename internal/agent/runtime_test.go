@@ -665,6 +665,70 @@ func TestRuntime_ResumeDropsReasoningWhenThePrefixChanged(t *testing.T) {
 	}
 }
 
+func TestRuntime_ResumeKeepsTheMeasures(t *testing.T) {
+	t.Parallel()
+	usage := provider.Usage{InputTokens: 100, OutputTokens: 20, CacheReadTokens: 300, CacheWriteTokens: 50}
+	measured := func(resp *provider.Response) *provider.Response {
+		resp.Usage = usage
+		return resp
+	}
+	s := newSession(t, testConfig(),
+		func(n int, _ provider.Request) (*provider.Response, error) {
+			switch n {
+			case 0:
+				return measured(delegate("medido", "faça")), nil
+			case 1:
+				return measured(wait()), nil
+			default:
+				return measured(say("pronto")), nil
+			}
+		},
+		func(int, provider.Request) (*provider.Response, error) { return measured(say("relatório")), nil })
+	if _, err := s.rt.Send(context.Background(), "vai"); err != nil {
+		t.Fatal(err)
+	}
+	before, beforeThread := s.rt.Host().Stats(), s.rt.threads["medido"].agent.Stats()
+	if before.Requests != 3 || before.ToolCalls != 2 || beforeThread.Requests != 1 {
+		t.Fatalf("medidas antes de retomar: host %+v, thread %+v", before, beforeThread)
+	}
+	saved, err := s.store.LoadMeta()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rt, err := NewRuntime(context.Background(), func() Options {
+		opts := s.opts
+		opts.Registry = tool.NewRegistry()
+		if err := opts.Registry.Register(tool.FileTools()...); err != nil {
+			t.Fatal(err)
+		}
+		opts.Provider = &fakeProvider{handler: func(int, provider.Request) (*provider.Response, error) {
+			return measured(say("continuei")), nil
+		}}
+		return opts
+	}())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if err := rt.Resume(saved); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.Host().Stats(); got != before {
+		t.Errorf("o host retomado deveria voltar com as medidas gravadas:\n%+v\nquero\n%+v", got, before)
+	}
+	if got := rt.threads["medido"].agent.Stats(); got != beforeThread {
+		t.Errorf("o thread retomado deveria voltar com as medidas gravadas:\n%+v\nquero\n%+v", got, beforeThread)
+	}
+	if _, err := rt.Send(context.Background(), "e agora?"); err != nil {
+		t.Fatal(err)
+	}
+	after := rt.Host().Stats()
+	if after.Requests != 4 || after.InputTokens != 400 || after.CacheReadTokens != 1200 {
+		t.Errorf("a contagem deveria seguir de onde parou: %+v", after)
+	}
+}
+
 func TestRuntime_CloseStopsRunningThreads(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})
