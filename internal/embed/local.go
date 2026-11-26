@@ -82,6 +82,10 @@ const installRetry = 10 * time.Minute
 // first search, when 'mister install' did not bring it before, starts on
 // demand and stops after a while without use, so it only holds memory while
 // the memory is being searched.
+//
+// The server is one for every Mister open on the same home: the first to
+// search starts it, the others find it running, and it comes down when the
+// last one stops using it. See shared.go.
 type Local struct {
 	Dir          string
 	Sources      Sources
@@ -92,16 +96,19 @@ type Local struct {
 	client    *client
 	installer OnDemand
 
-	mu       sync.Mutex
-	proc     *process
+	mu sync.Mutex
+	// use is the lock this Mister holds while it uses the server; nil when it
+	// is not using it.
+	use    *os.File
+	server serverState
+	// child is the server when this Mister started it.
+	child    *process
 	inflight int
 	idle     *time.Timer
 }
 
 type process struct {
-	cmd  *exec.Cmd
-	url  string
-	logs *tailBuffer
+	cmd *exec.Cmd
 	// done closes when the process exits.
 	done chan struct{}
 }
@@ -183,32 +190,38 @@ func (l *Local) acquire(ctx context.Context) (url string, release func(), err er
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.proc != nil {
-		select {
-		case <-l.proc.done:
-			l.proc = nil
-		default:
-		}
+	if l.use != nil && !l.running() {
+		l.letGo()
 	}
-	if l.proc == nil {
-		p, err := l.start(ctx)
-		if err != nil {
+	if l.use == nil {
+		if err := l.attach(ctx); err != nil {
 			return "", nil, err
 		}
-		l.proc = p
 	}
 	if l.idle != nil {
 		l.idle.Stop()
 	}
 	l.inflight++
-	return l.proc.url, l.release, nil
+	return l.server.url() + "/v1", l.release, nil
+}
+
+// running reports whether the server this Mister uses is still there.
+func (l *Local) running() bool {
+	if l.child != nil {
+		select {
+		case <-l.child.done:
+			return false
+		default:
+		}
+	}
+	return alive(l.server.PID)
 }
 
 func (l *Local) release() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.inflight--
-	if l.inflight > 0 || l.proc == nil {
+	if l.inflight > 0 || l.use == nil {
 		return
 	}
 	if l.idle != nil {
@@ -220,36 +233,36 @@ func (l *Local) release() {
 func (l *Local) stopIfIdle() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.inflight == 0 && l.proc != nil {
-		l.proc.stop()
-		l.proc = nil
+	if l.inflight == 0 {
+		l.detach()
 	}
 }
 
-// Close stops the server, if it is running.
+// Close stops using the server, which comes down if no other Mister uses it.
 func (l *Local) Close() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.idle != nil {
 		l.idle.Stop()
 	}
-	if l.proc != nil {
-		l.proc.stop()
-		l.proc = nil
-	}
+	l.detach()
 }
 
-func (l *Local) start(ctx context.Context) (*process, error) {
+// start runs the server on a free port and waits until it answers.
+func (l *Local) start(ctx context.Context) (serverState, *process, error) {
 	port, err := freePort()
 	if err != nil {
-		return nil, fmt.Errorf("reservando uma porta para o servidor de embedding: %w", err)
+		return serverState{}, nil, fmt.Errorf("reservando uma porta para o servidor de embedding: %w", err)
 	}
-	p := &process{
-		url:  "http://127.0.0.1:" + strconv.Itoa(port),
-		logs: &tailBuffer{max: 4000},
-		done: make(chan struct{}),
+	// The server may outlive this Mister, so it writes to a file, not to a pipe.
+	logPath := filepath.Join(l.Dir, logFile)
+	logs, err := os.Create(logPath)
+	if err != nil {
+		return serverState{}, nil, fmt.Errorf("criando o registro do servidor de embedding: %w", err)
 	}
-	// The server outlives the request that started it: Close and the idle clock stop it.
+	defer logs.Close()
+
+	p := &process{done: make(chan struct{})}
 	p.cmd = exec.Command(l.serverPath(),
 		"--model", l.modelPath(),
 		"--embedding",
@@ -263,67 +276,45 @@ func (l *Local) start(ctx context.Context) (*process, error) {
 		"--threads", strconv.Itoa(max(1, runtime.NumCPU()/2)),
 		"--no-webui",
 	)
-	p.cmd.Stdout, p.cmd.Stderr = p.logs, p.logs
-	// Own process group, so Ctrl+C in the terminal does not reach it; and it
-	// dies with the Mister if the Mister is killed.
-	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGTERM}
+	p.cmd.Dir = l.Dir
+	p.cmd.Stdout, p.cmd.Stderr = logs, logs
+	// Own session: neither Ctrl+C in the terminal nor the end of this Mister
+	// reaches it. Another Mister may be using it by then.
+	p.cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := p.cmd.Start(); err != nil {
-		return nil, fmt.Errorf("subindo o servidor de embedding: %w", err)
+		return serverState{}, nil, fmt.Errorf("subindo o servidor de embedding: %w", err)
 	}
 	go func() {
 		_ = p.cmd.Wait()
 		close(p.done)
 	}()
 
-	if err := p.waitReady(ctx, l.StartTimeout); err != nil {
-		p.stop()
-		return nil, err
+	state := serverState{PID: p.cmd.Process.Pid, Port: port}
+	if err := p.waitReady(ctx, state.url(), l.StartTimeout, logPath); err != nil {
+		stop(state, p.done)
+		return serverState{}, nil, err
 	}
-	p.url += "/v1"
-	return p, nil
+	return state, p, nil
 }
 
-func (p *process) waitReady(ctx context.Context, timeout time.Duration) error {
+func (p *process) waitReady(ctx context.Context, url string, timeout time.Duration, logPath string) error {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
-	client := &http.Client{Timeout: 2 * time.Second}
 	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url+"/health", nil)
-		if err != nil {
-			return fmt.Errorf("conferindo o servidor de embedding: %w", err)
-		}
-		if resp, err := client.Do(req); err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
+		if healthy(ctx, url) {
+			return nil
 		}
 		select {
 		case <-p.done:
-			return fmt.Errorf("o servidor de embedding fechou ao subir: %s", p.logs.String())
+			return fmt.Errorf("o servidor de embedding fechou ao subir: %s", tail(logPath, 4000))
 		case <-deadline.C:
-			return fmt.Errorf("o servidor de embedding não ficou pronto em %s: %s", timeout, p.logs.String())
+			return fmt.Errorf("o servidor de embedding não ficou pronto em %s: %s", timeout, tail(logPath, 4000))
 		case <-ctx.Done():
 			return fmt.Errorf("subida do servidor de embedding cancelada: %w", ctx.Err())
 		case <-tick.C:
 		}
-	}
-}
-
-func (p *process) stop() {
-	select {
-	case <-p.done:
-		return
-	default:
-	}
-	_ = p.cmd.Process.Signal(syscall.SIGTERM)
-	select {
-	case <-p.done:
-	case <-time.After(5 * time.Second):
-		_ = p.cmd.Process.Kill()
-		<-p.done
 	}
 }
 
@@ -336,27 +327,16 @@ func freePort() (int, error) {
 	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
-// tailBuffer keeps the last bytes written, to explain a server that failed.
-type tailBuffer struct {
-	mu   sync.Mutex
-	data []byte
-	max  int
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.data = append(b.data, p...)
-	if over := len(b.data) - b.max; over > 0 {
-		b.data = append(b.data[:0], b.data[over:]...)
+// tail returns the end of a file, to explain a server that failed.
+func tail(path string, limit int) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
 	}
-	return len(p), nil
-}
-
-func (b *tailBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return strings.TrimSpace(strings.ToValidUTF8(string(b.data), ""))
+	if len(data) > limit {
+		data = data[len(data)-limit:]
+	}
+	return strings.TrimSpace(strings.ToValidUTF8(string(data), ""))
 }
 
 // Install downloads the server and the model into Dir, checking each file

@@ -104,10 +104,6 @@ func pidOf(t *testing.T, l *Local) int {
 	return int(v[1])
 }
 
-func alive(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
-}
-
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -122,7 +118,7 @@ func waitGone(t *testing.T, pid int) {
 func TestLocal_StartsOnDemandAndReusesTheServer(t *testing.T) {
 	t.Parallel()
 	l := installFake(t, false)
-	if l.proc != nil {
+	if l.use != nil {
 		t.Fatal("o servidor não deveria subir antes da primeira busca")
 	}
 	vectors, err := l.EmbedDocuments(context.Background(), []memory.Document{{Title: "nota", Text: "abc"}})
@@ -164,6 +160,121 @@ func TestLocal_RestartsAServerThatDied(t *testing.T) {
 	waitGone(t, pid)
 	if again := pidOf(t, l); again == pid {
 		t.Error("deveria subir um servidor novo no lugar do que morreu")
+	}
+}
+
+// another is a second Mister on the same home: its own Local over the same
+// folder.
+func another(t *testing.T, first *Local) *Local {
+	t.Helper()
+	l := NewLocal(first.Dir)
+	l.client.model = first.client.model
+	l.StartTimeout = first.StartTimeout
+	t.Cleanup(l.Close)
+	return l
+}
+
+func TestLocal_TwoMistersShareOneServer(t *testing.T) {
+	t.Parallel()
+	a := installFake(t, false)
+	b := another(t, a)
+	pid := pidOf(t, a)
+	if got := pidOf(t, b); got != pid {
+		t.Fatalf("o segundo Mister deveria usar o servidor do primeiro (%d), usou %d", pid, got)
+	}
+
+	a.Close()
+	if !alive(pid) {
+		t.Fatal("o servidor não pode cair enquanto outro Mister o usa")
+	}
+	if got := pidOf(t, b); got != pid {
+		t.Errorf("o segundo Mister deveria seguir no mesmo servidor (%d), usou %d", pid, got)
+	}
+	b.Close()
+	waitGone(t, pid)
+	if _, err := os.Stat(filepath.Join(a.Dir, stateFile)); !os.IsNotExist(err) {
+		t.Errorf("sem servidor, o arquivo de estado deveria sair: %v", err)
+	}
+}
+
+func TestLocal_ManyMistersStartOnlyOneServer(t *testing.T) {
+	t.Parallel()
+	first := installFake(t, false)
+	locals := []*Local{first}
+	for range 5 {
+		locals = append(locals, another(t, first))
+	}
+	pids := make([]int, len(locals))
+	var wg sync.WaitGroup
+	for i, l := range locals {
+		wg.Go(func() {
+			v, err := l.EmbedQuery(context.Background(), "x")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			pids[i] = int(v[1])
+		})
+	}
+	wg.Wait()
+	for _, pid := range pids {
+		if pid != pids[0] {
+			t.Fatalf("todos deveriam cair no mesmo servidor: %v", pids)
+		}
+	}
+}
+
+func TestLocal_IdleMisterDoesNotStopTheServerOfAnother(t *testing.T) {
+	t.Parallel()
+	a := installFake(t, false)
+	a.IdleTimeout = 100 * time.Millisecond
+	b := another(t, a)
+	pid := pidOf(t, a)
+	if got := pidOf(t, b); got != pid {
+		t.Fatalf("os dois deveriam usar o mesmo servidor: %d e %d", pid, got)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if !alive(pid) {
+		t.Fatal("o primeiro parou de usar, mas o segundo ainda usa: o servidor fica")
+	}
+	b.IdleTimeout = 100 * time.Millisecond
+	if got := pidOf(t, b); got != pid {
+		t.Errorf("o segundo deveria seguir no mesmo servidor (%d), usou %d", pid, got)
+	}
+	waitGone(t, pid)
+}
+
+// A Mister that is killed drops its locks and leaves the server running.
+func TestLocal_ServerLeftByADeadMisterIsReusedAndStopped(t *testing.T) {
+	t.Parallel()
+	a := installFake(t, false)
+	pid := pidOf(t, a)
+	a.mu.Lock()
+	a.idle.Stop()
+	a.letGo()
+	a.mu.Unlock()
+
+	b := another(t, a)
+	if got := pidOf(t, b); got != pid {
+		t.Fatalf("o servidor que ficou de pé deveria ser reaproveitado (%d), usou %d", pid, got)
+	}
+	b.Close()
+	waitGone(t, pid)
+}
+
+func TestLocal_StaleStateIsNotTrusted(t *testing.T) {
+	t.Parallel()
+	l := installFake(t, false)
+	// The number of a process that is not the server: this test itself.
+	if err := l.writeState(serverState{PID: os.Getpid(), Port: 1}); err != nil {
+		t.Fatal(err)
+	}
+	pid := pidOf(t, l)
+	if pid == os.Getpid() {
+		t.Fatal("deveria subir um servidor de verdade")
+	}
+	if state, ok := l.readState(); !ok || state.PID != pid {
+		t.Errorf("o estado deveria apontar para o servidor novo (%d): %+v", pid, state)
 	}
 }
 
