@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/MatheusGustav/mister/internal/agent"
 	"github.com/MatheusGustav/mister/internal/browser"
@@ -48,6 +49,8 @@ type printer struct {
 	// live is the line editor while a message is being typed in the terminal:
 	// what is printed meanwhile goes through it.
 	live io.Writer
+	// md styles the markdown of the answer when it goes to a terminal.
+	md *markdown
 }
 
 func (p *printer) setLive(w io.Writer) {
@@ -59,17 +62,37 @@ func (p *printer) setLive(w io.Writer) {
 func (p *printer) text(delta string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.md != nil {
+		delta = p.md.Write(delta)
+	}
+	p.write(delta)
+}
+
+// write prints a piece of the answer. Called with p.mu held.
+func (p *printer) write(text string) {
+	if text == "" {
+		return
+	}
 	out := p.out
 	if p.live != nil {
 		out = p.live
 	}
-	fmt.Fprint(out, delta)
-	p.midLine = !strings.HasSuffix(delta, "\n")
+	fmt.Fprint(out, text)
+	p.midLine = !strings.HasSuffix(text, "\n")
+}
+
+// flush prints the part of the answer the markdown was still holding. Called
+// with p.mu held.
+func (p *printer) flush() {
+	if p.md != nil {
+		p.write(p.md.Flush())
+	}
 }
 
 func (p *printer) endLine() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.flush()
 	if p.midLine {
 		fmt.Fprintln(p.out)
 		p.midLine = false
@@ -85,6 +108,7 @@ func (p *printer) prompt() {
 func (p *printer) status(format string, args ...any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.flush()
 	if p.midLine {
 		fmt.Fprintln(p.out)
 		p.midLine = false
@@ -100,6 +124,12 @@ func runChat(cmd *cobra.Command, deps Deps, opts chatOptions) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 	out := &printer{out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
+	if screen, ok := cmd.OutOrStdout().(*os.File); ok && styled(screen) {
+		out.md = &markdown{width: func() int {
+			width, _, _ := term.GetSize(int(screen.Fd()))
+			return width
+		}}
+	}
 
 	home, err := config.ResolveHome()
 	if err != nil {
@@ -393,4 +423,10 @@ func shorten(text string, limit int) string {
 		return strings.ToValidUTF8(s[:limit], "") + "…"
 	}
 	return s
+}
+
+// styled reports whether the answer goes to a terminal that takes styles.
+// NO_COLOR is the usual way of asking a program for plain text.
+func styled(out *os.File) bool {
+	return term.IsTerminal(int(out.Fd())) && os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb"
 }
