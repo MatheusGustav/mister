@@ -91,12 +91,18 @@ func (c *Client) Complete(ctx context.Context, req provider.Request) (*provider.
 		if err := msg.Accumulate(event); err != nil {
 			return nil, fmt.Errorf("montando a resposta da anthropic: %w", err)
 		}
-		if req.OnText == nil {
-			continue
-		}
-		if delta, ok := event.AsAny().(sdk.BetaRawContentBlockDeltaEvent); ok {
-			if text, ok := delta.Delta.AsAny().(sdk.BetaTextDelta); ok {
+		switch ev := event.AsAny().(type) {
+		case sdk.BetaRawContentBlockDeltaEvent:
+			if text, ok := ev.Delta.AsAny().(sdk.BetaTextDelta); ok && req.OnText != nil {
 				req.OnText(text.Text)
+			}
+		case sdk.BetaRawContentBlockStopEvent:
+			// The input of the search is complete only when its block ends.
+			if req.OnWebSearch == nil || ev.Index < 0 || int(ev.Index) >= len(msg.Content) {
+				continue
+			}
+			if search, ok := msg.Content[ev.Index].AsAny().(sdk.BetaServerToolUseBlock); ok && search.Name == "web_search" {
+				req.OnWebSearch(json.RawMessage(search.JSON.Input.Raw()))
 			}
 		}
 	}

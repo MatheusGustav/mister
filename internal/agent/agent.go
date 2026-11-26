@@ -343,6 +343,12 @@ func (a *Agent) request(messages []provider.Message) provider.Request {
 	if a.hooks.OnText != nil {
 		req.OnText = func(delta string) { a.hooks.OnText(a.set.ID, delta) }
 	}
+	if a.hooks.OnToolCall != nil {
+		// The provider's own search shows up like any other tool call.
+		req.OnWebSearch = func(input json.RawMessage) {
+			a.hooks.OnToolCall(a.set.ID, tool.Call{Name: WebSearchTool, Input: input})
+		}
+	}
 	return req
 }
 

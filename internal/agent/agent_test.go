@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -279,6 +280,24 @@ func TestAgent_Run_StopReasons(t *testing.T) {
 			t.Errorf("erro = %v", err)
 		}
 	})
+}
+
+func TestAgent_Run_ShowsTheProvidersWebSearch(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, Settings{}, func(_ int, req provider.Request) (*provider.Response, error) {
+		req.OnWebSearch(json.RawMessage(`{"query":"go 1.27"}`))
+		return say("achei"), nil
+	})
+	var calls []string
+	h.agent.hooks.OnToolCall = func(id string, call tool.Call) {
+		calls = append(calls, id+" "+call.Name+" "+string(call.Input))
+	}
+	if _, err := h.agent.Run(context.Background(), "pesquise"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0] != `teste pesquisar_web {"query":"go 1.27"}` {
+		t.Errorf("chamadas mostradas = %q", calls)
+	}
 }
 
 func TestAgent_Run_StopsAtMaxIterations(t *testing.T) {

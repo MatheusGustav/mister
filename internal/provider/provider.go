@@ -122,6 +122,9 @@ type Request struct {
 	Messages  []Message
 	// OnText receives the text of the answer as it is generated.
 	OnText func(delta string)
+	// OnWebSearch receives each search the provider runs on its side, as the
+	// JSON input the model gave it.
+	OnWebSearch func(input json.RawMessage)
 }
 
 type StopReason string

@@ -258,6 +258,31 @@ func TestClient_Complete_ReplaysAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestClient_Complete_ReportsNativeWebSearch(t *testing.T) {
+	t.Parallel()
+	api := &fakeAPI{stream: sse(
+		messageStart,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"go 1.27\"}"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Achei."}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":5}}`,
+		`{"type":"message_stop"}`,
+	)}
+	var searches []string
+	req := baseRequest()
+	req.OnWebSearch = func(input json.RawMessage) { searches = append(searches, string(input)) }
+	if _, err := api.client(t).Complete(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if len(searches) != 1 || searches[0] != `{"query":"go 1.27"}` {
+		t.Errorf("pesquisas avisadas = %q, quero a pesquisa com a entrada completa", searches)
+	}
+}
+
 func TestClient_DropReasoning(t *testing.T) {
 	t.Parallel()
 	api := &fakeAPI{stream: toolUseStream()}
