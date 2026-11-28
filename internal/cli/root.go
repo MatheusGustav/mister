@@ -70,7 +70,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.Flags().StringVar(&opts.model, "model", "", "modelo do host (sonnet, opus, fable ou um id completo)")
 	root.Flags().StringVar(&opts.role, "agent", "", "agente principal (padrão: host)")
 
-	root.AddCommand(newInstallCommand(deps), newRolesCommand(), newSessionsCommand(), newVersionCommand())
+	root.AddCommand(newInstallCommand(deps), newRolesCommand(), newSessionsCommand(), newVersionCommand(), newDemoCommand())
 	return root
 }
 
